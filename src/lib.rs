@@ -71,6 +71,33 @@ fn multi_key_access(json: &Value, keys: &[String]) -> String {
     }
 } 
 
+// fn multi_key_access_V(json: &Value, keys: &[String]) -> &'static Value {
+//     if keys.is_empty() {
+//         json
+//     } else {
+//         let k = &keys[0];
+//         multi_key_access_V(&json[k], &keys[1..])
+//     }
+// } 
+
+// fn find_value(json: &Value, cmd: QueryCmd) -> Vec<&Value> {
+//     match cmd {
+//         QueryCmd::MultiArrayIndex(idxs)  => {
+//             let vals = json.as_array().unwrap();
+//             idxs.iter().map(|i| &vals[*i]).collect::<Vec<_>>()
+//         }
+//         QueryCmd::KeywordAccess(keys)  => vec![multi_key_access_V(&json, &keys)],
+//         QueryCmd::MultiCmd(cmds)  => {
+//             if cmds.is_empty() {
+//                 vec![json]
+//             } else  {
+//                 let v = find_value(json, cmds[0]);
+//                 find_value(&v, QueryCmd::MultiCmd(cmds[1..].to_vec()))
+//             }
+//         }
+//     }
+// }
+
 pub fn print_json(cmd: CmdArgs) -> Result<(), Box<dyn Error>> {
     let json: Value = parse_json(&cmd.input_file)?;
     if cmd.query.is_some() {
@@ -85,10 +112,23 @@ pub fn print_json(cmd: CmdArgs) -> Result<(), Box<dyn Error>> {
                 let string_val = multi_key_access(&json, &keys);
                 println!("{}", string_val);
             }
-            // QueryCmd::SingleArrayIndex(i)   => {
-            //     let vals = json.as_array().unwrap();
-            //     println!("{}", vals[i].to_string());
-            // }
+            QueryCmd::MultiCmd(cmds)  => {
+                let mut val = & json;
+                for cmd in cmds {
+                    match cmd {
+                        QueryCmd::MultiArrayIndex(idx) => { 
+                            let arr  = val.as_array().unwrap();                            
+                            val = & arr[idx[0]];
+                        },
+                        QueryCmd::KeywordAccess(keys)  => for k in keys {
+                            val = & val[k];
+                        },
+                        _ => val = & val,
+                    }
+                }
+                println!("{}", val);
+            }
+
             _ =>  println!("{}", json.to_string())
         }
     } else {
