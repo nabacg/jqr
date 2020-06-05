@@ -79,28 +79,22 @@ fn multi_cmd_list(s: &str) -> IResult<&str, QueryCmd> {
 //  )
 // );
 
-named!(multi_cmd_list_mac( &str) -> QueryCmd, 
-    ws!(map!(separated_list!(tag("|"),  
-     alt((array_index_access,keyword_access))),
-      |cmds| {
-          println!("Cmds={:?}", cmds);
-          QueryCmd::MultiCmd(cmds)
-      })));
+named!(keyword_access_mac(&str) -> QueryCmd, map!(ws!(tuple!(tag!("{"), call!(string_list), tag!("}"))), |(_, ks, _)| QueryCmd::KeywordAccess(ks)));
 
 //separated_list(tag(","), map_res(digit1, |s: &str| s.parse::<usize>()))(s)
 named!(int_list_mac(&str) ->  Vec<usize>,  ws!(separated_list!(tag(","), map_res(digit1, |s: &str| s.parse::<usize>()))));
 
+named!(array_index_access_mac(&str) -> QueryCmd, map!(ws!(tuple!(tag!("["), call!(int_list_mac), tag!("]"))), |(_, ids, _)| QueryCmd::MultiArrayIndex(ids)));
+
+named!(multi_cmd_list_mac( &str) -> QueryCmd, 
+    map!(ws!(separated_list!(tag("|"),  
+     alt((array_index_access_mac,keyword_access_mac)))),
+      |cmds| QueryCmd::MultiCmd(cmds)));
+
+
 named!(taggy_tags(&str) -> &str,  ws!(tag!(",")));
 
 named!(int_mac(&str) ->  usize,  ws!( map_res!(digit1, |s: &str| s.parse::<usize>())));
-
-// fn multi_cmd_list2(s: &str) -> IResult<&str, QueryCmd> {
-
-    
-//     let (input, cmds) = (s)?;
-//     Ok((input, QueryCmd::MultiCmd(cmds)))
-// }
-
 
 
 // combinator list
@@ -112,8 +106,8 @@ named!(int_mac(&str) ->  usize,  ws!( map_res!(digit1, |s: &str| s.parse::<usize
 pub fn parse(input: &str) -> IResult<&str, QueryCmd> {
 
     //alt((array_index_access, keyword_access))(input)
-    multi_cmd_list(input)
-    // multi_cmd_list_mac(input)
+    //multi_cmd_list(input)
+    multi_cmd_list_mac(input)
 
 }
 
@@ -144,7 +138,7 @@ mod parser_tests {
         assert_eq!(int_list_mac(&""),      Ok(("", vec![])));
 
         assert_eq!(int_list_mac(&"1,2"),     Ok(("", vec![1,2])));
-        assert_eq!(int_list_mac(&"1, 2, 3"), Ok(("", vec![1,2,3])));
+        assert_eq!(int_list_mac(&" 1 ,     2, 3"), Ok(("", vec![1,2,3])));
     }
 
 
