@@ -9,7 +9,7 @@ fn main() {
         process::exit(1);
     });
 
-    if let Err(e) = jqr::print_json(cmd) {
+    if let Err(e) = jqr::eval_cmd(cmd) {
         eprintln!("Application error: {}", e);
         process::exit(1);
     }

@@ -98,7 +98,15 @@ fn multi_key_access(json: &Value, keys: &[String]) -> String {
 //     }
 // }
 
-pub fn print_json(cmd: CmdArgs) -> Result<(), Box<dyn Error>> {
+fn print_json(val:&Value) {
+    if let Ok(s) = serde_json::to_string_pretty(val) {
+        println!("{}", s)
+    } else {
+        println!("{}", val.to_string());
+    }
+}
+
+pub fn eval_cmd(cmd: CmdArgs) -> Result<(), Box<dyn Error>> {
     let json: Value = parse_json(&cmd.input_file)?;
     if cmd.query.is_some() {
         match parse_cmd(&cmd.query.unwrap())? {
@@ -126,13 +134,13 @@ pub fn print_json(cmd: CmdArgs) -> Result<(), Box<dyn Error>> {
                         _ => val = & val,
                     }
                 }
-                println!("{}", val);
+                print_json(val);
             }
 
-            _ =>  println!("{}", json.to_string())
+            _ =>  print_json(&json)
         }
     } else {
-        println!("{}", json.to_string());
+        print_json(&json);
     } 
     Ok(())
 }
