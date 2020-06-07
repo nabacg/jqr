@@ -1,5 +1,8 @@
+JQR is command line tool for exploring JSON documents, heavily inspired by [jq](https://github.com/stedolan/jq), but written in [Rust](https://www.rust-lang.org). It's very much work in progress! 
 
-# Install 
+# Install
+Easiest way to use jqr is to install it as a Rust binary on your OS path, which can be done very easily with `cargo install`. For this and all following steps you'll need rust tools installed, please follow steps detailed on  [official install Rust](https://www.rust-lang.org/tools/install) page.
+
 ```bash
 cd jqr
 
@@ -9,20 +12,11 @@ jqr sample-github.json "[0] | {parents} | [0] | { html_url }"
 ```
 
 
-# Building 
-
-```bash
-cd jqr
-
-cargo build
-
-./target/release/jqr sample-github.json "[0] | {parents} | [0] | { html_url }"
-```
 # Sample use 
 ## No Cmd Args
 No argument just pretty prints json contents
 ```bash
-cargo run test1.json
+jqr test1.json
 ```
 
 ```json
@@ -56,7 +50,7 @@ cargo run test1.json
 ## Array index access 
 ToDo - neex fixing, currently it's aways parsed as MultiCmd and only first index is returned
 ```bash
-cargo run test1.json "[0,2]"
+jqr test1.json "[0,2]"
 ```
 ```json
 {
@@ -80,7 +74,7 @@ curl 'https://api.github.com/repos/stedolan/jq/commits?per_page=5' > sample-gith
 ```
 
 ```bash
-cargo run --release sample-github.json "[0] | {author}"
+jqr --release sample-github.json "[0] | {author}"
 ```
 ```json 
 {
@@ -107,7 +101,7 @@ cargo run --release sample-github.json "[0] | {author}"
 
 ### Access single field
 ```bash
-cargo run --release sample-github.json "[0] | { parents } | [0] | {url}"
+jqr --release sample-github.json "[0] | { parents } | [0] | {url}"
 Cmd=MultiCmd([MultiArrayIndex([0]), KeywordAccess(["parents"]), MultiArrayIndex([0]), KeywordAccess(["url"])])
 ```
 ```json
@@ -117,7 +111,7 @@ Cmd=MultiCmd([MultiArrayIndex([0]), KeywordAccess(["parents"]), MultiArrayIndex(
 ### Keyword Access to nested sub-document using key1.key2
 
 ```bash 
-cargo run sample-github.json "[0] | { commit.author } "
+jqr sample-github.json "[0] | { commit.author } "
 ```
 ```json
 {
