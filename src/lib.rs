@@ -38,11 +38,11 @@ fn parse_cmd(cmd_str: &String) -> Result<QueryCmd, &'static str> {
     // https://github.com/Geal/nom/blob/master/doc/making_a_new_parser_from_scratch.md
     match parser::parse(&cmd_str) {
         Ok(("", cmd)) => {
-            println!("Cmd={:?}", cmd);
+         //   println!("Cmd={:?}", cmd); // ToDo add a --Debug flag to print it out?
             Ok(cmd)
         }
         Ok((input_left, cmd)) => {
-            println!("Cmd={:?} but found unconsumed input={}" , cmd, input_left);
+        //    println!("Cmd={:?} but found unconsumed input={}" , cmd, input_left);
             Ok(cmd)
         }
         Err(e) => {

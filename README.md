@@ -128,7 +128,7 @@ cargo run sample-github.json "[0] | { commit.author } "
 ```
 
 
-### Pipes work
+### linux pipes
 ```bash
 cat sample-github.json | jqr "[3] | { committer } "
 ```
@@ -152,41 +152,5 @@ cat sample-github.json | jqr "[3] | { committer } "
   "subscriptions_url": "https://api.github.com/users/wtlangford/subscriptions",
   "type": "User",
   "url": "https://api.github.com/users/wtlangford"
-}
-```
-
-
-400 Mb json file
- cargo run --release ~/Adzerk/Reporting/hoenir/it/data/json/005e9b4c-06de-4ad7-831d-ddd1ed924297 "{Records} | [0] | { Details } | [0]"
-
-and running on large json
- cargo run --release 004ff2c5-7ed0-433b-8638-e6ceeceb1d09-7 "{Records} | [0] | { Details } | [0]"
-
- {"CTR":0.007064,"Clicks":7,"Date":"2020-04-24T00:00:00Z","DateType":null,"Details":[],"DuplicateIPBucketClicks":0,"DuplicateImpressionBucketClicks":0,"Events":{},"FirstDate":"2020-04-24T00:00:00Z","Grouping":{"AdTypeId":0,"BrandId":0,"CampaignId":548278,"ChannelId":0,"City":null,"CountryCode":null,"CreativeId":0,"Date":0,"DateType":null,"Keyword":null,"MetroCode":0,"OptionId":11091079,"Price":"0","PriorityId":0,"PublisherAccountId":0,"RateTypeId":2,"Region":null,"SiteId":681017,"ZoneId":0},"Impressions":99092,"InvalidUABucketClicks":0,"LastDate":"2020-04-24T00:00:00Z","RawBucketClicks":7,"Revenue":0.0,"SuspiciousBucketClicks":0,"TestBucketClicks":0,"Title":"UK - Sainsbury's Nectar - Feb 2020 - AdylicPortfolio IO-016066 Companion","TrueRevenue":0.0,"UniqueBucketClicks":7,"UniqueCTR":0.007064,"_title":null,"eCPM":0.0}
-
-
- cargo run --release 004ff2c5-7ed0-433b-8638-e6ceeceb1d09-7 "{Records} | [0] | { Details } | [0] | { Grouping}"
-
- Cmd=MultiCmd([KeywordAccess(["Records"]), MultiArrayIndex([0]), KeywordAccess(["Details"]), MultiArrayIndex([0]), KeywordAccess(["Grouping"])])
-{
-  "AdTypeId": 0,
-  "BrandId": 0,
-  "CampaignId": 548278,
-  "ChannelId": 0,
-  "City": null,
-  "CountryCode": null,
-  "CreativeId": 0,
-  "Date": 0,
-  "DateType": null,
-  "Keyword": null,
-  "MetroCode": 0,
-  "OptionId": 11091079,
-  "Price": "0",
-  "PriorityId": 0,
-  "PublisherAccountId": 0,
-  "RateTypeId": 2,
-  "Region": null,
-  "SiteId": 681017,
-  "ZoneId": 0
 }
 ```
