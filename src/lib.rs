@@ -4,34 +4,32 @@ use std::fs;
 use std::error::Error;
 use serde_json::{ Value};
 use parser::QueryCmd;
+use std::io::{self, Read};
 mod parser;
 
 #[derive(Debug)]
 pub struct CmdArgs {
-    input_file: String,
+    input_file: Option<String>,
     query: Option<String>
 }
 
 impl CmdArgs {
-    pub fn new(args: &[String]) -> Result<CmdArgs, &'static str> {
-        let arg_len = args.len();
-
-        if arg_len < 2 {
-            return Err("jqr requires at least 1 argument");
-        }
-
-        if arg_len == 3 {
-            Ok(CmdArgs{
-                input_file: args[1].clone(),
-                query: Some(args[2].clone())
-            })
-        } else {
-            Ok(CmdArgs {
-                input_file: args[1].clone(),
+    pub fn new(args: &[String]) -> Result<CmdArgs, String> {
+        match args {
+            [_, input_file, query] =>  Ok(CmdArgs{
+                input_file: Some(input_file.clone()),
+                query: Some(query.clone())
+            }),
+            [_, query] => Ok(CmdArgs {
+                input_file: None,
+                query: Some(query.clone())
+            }),
+            [] => Ok(CmdArgs {
+                input_file: None,
                 query: None
-            })
+            }),
+            _ => return Err(format!("Wrong number of arguments passed, jqr expects 0, 1 or 2 args. Passed= {}", args.len()))
         }
-        
     }
 }
 
@@ -55,9 +53,20 @@ fn parse_cmd(cmd_str: &String) -> Result<QueryCmd, &'static str> {
     
 }
 
-pub fn parse_json(file: &String) -> Result<Value,  Box<dyn Error>> {
+pub fn read_json_file(file: &String) -> Result<Value,  Box<dyn Error>> {
     let file_contents = &fs::read_to_string(file)?; 
     let json: Value = serde_json::from_str(file_contents)?;
+
+    Ok(json)
+}
+
+fn read_json_from_stdin() -> Result<Value, Box<dyn Error>> {
+    let mut buffer = String::new();
+    let stdin = io::stdin();
+    let mut handle = stdin.lock();
+    handle.read_to_string(&mut buffer)?;
+
+    let json: Value = serde_json::from_str(&buffer)?;
 
     Ok(json)
 }
@@ -106,22 +115,25 @@ fn print_json(val:&Value) {
     }
 }
 
-pub fn eval_cmd(cmd: CmdArgs) -> Result<(), Box<dyn Error>> {
-    let json: Value = parse_json(&cmd.input_file)?;
-    if cmd.query.is_some() {
-        match parse_cmd(&cmd.query.unwrap())? {
-            QueryCmd::MultiArrayIndex(idxs)  => {
-                let vals = json.as_array().unwrap();
-                for i in idxs {
-                    println!("{}", vals[i].to_string());
-                }
+fn eval_inner(json:&Value, query: &QueryCmd) {
+    match query {
+        QueryCmd::MultiArrayIndex(idxs)  => {
+            let vals = json.as_array().unwrap();
+            for i in idxs {
+                print_json(&vals[*i]);
             }
-            QueryCmd::KeywordAccess(keys)  => {
-                let string_val = multi_key_access(&json, &keys);
-                println!("{}", string_val);
-            }
-            QueryCmd::MultiCmd(cmds)  => {
-                let mut val = & json;
+        }
+        QueryCmd::KeywordAccess(keys)  => {
+            let string_val = multi_key_access(&json, &keys);
+            println!("{}", string_val);
+        }
+        QueryCmd::MultiCmd(cmds)  => {
+           
+            if cmds.len() == 1 {
+                eval_inner(json, &cmds[0]);
+            } else {
+                let mut val = json; 
+                // This needs to be refactored, maybe using a function like find_value
                 for cmd in cmds {
                     match cmd {
                         QueryCmd::MultiArrayIndex(idx) => { 
@@ -136,11 +148,20 @@ pub fn eval_cmd(cmd: CmdArgs) -> Result<(), Box<dyn Error>> {
                 }
                 print_json(val);
             }
-
-            _ =>  print_json(&json)
         }
-    } else {
-        print_json(&json);
-    } 
+    }
+}
+
+pub fn eval_cmd(cmd: CmdArgs) -> Result<(), Box<dyn Error>> {
+    let json: Value = match &cmd.input_file {
+        Some(input_path) => read_json_file(&input_path)?,
+        None             => read_json_from_stdin()?
+    };
+    
+    match cmd.query.map(|query| parse_cmd(&query)) {
+        Some(Ok(cmd))   => eval_inner(&json, &cmd), 
+        Some(Err(msg))  => println!("Failed at cmd parsing with error= {}", msg), // Seems like too many levels of error handling
+        None            => print_json(&json)
+    }
     Ok(())
 }

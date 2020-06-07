@@ -1,5 +1,23 @@
 
+# Install 
+```bash
+cd jqr
 
+cargo install --path .
+
+jqr sample-github.json "[0] | {parents} | [0] | { html_url }"
+```
+
+
+# Building 
+
+```bash
+cd jqr
+
+cargo build
+
+./target/release/jqr sample-github.json "[0] | {parents} | [0] | { html_url }"
+```
 # Sample use 
 ## No Cmd Args
 No argument just pretty prints json contents
@@ -110,7 +128,32 @@ cargo run sample-github.json "[0] | { commit.author } "
 ```
 
 
-
+### Pipes work
+```bash
+cat sample-github.json | jqr "[3] | { committer } "
+```
+```json
+{
+  "avatar_url": "https://avatars2.githubusercontent.com/u/3422295?v=4",
+  "events_url": "https://api.github.com/users/wtlangford/events{/privacy}",
+  "followers_url": "https://api.github.com/users/wtlangford/followers",
+  "following_url": "https://api.github.com/users/wtlangford/following{/other_user}",
+  "gists_url": "https://api.github.com/users/wtlangford/gists{/gist_id}",
+  "gravatar_id": "",
+  "html_url": "https://github.com/wtlangford",
+  "id": 3422295,
+  "login": "wtlangford",
+  "node_id": "MDQ6VXNlcjM0MjIyOTU=",
+  "organizations_url": "https://api.github.com/users/wtlangford/orgs",
+  "received_events_url": "https://api.github.com/users/wtlangford/received_events",
+  "repos_url": "https://api.github.com/users/wtlangford/repos",
+  "site_admin": false,
+  "starred_url": "https://api.github.com/users/wtlangford/starred{/owner}{/repo}",
+  "subscriptions_url": "https://api.github.com/users/wtlangford/subscriptions",
+  "type": "User",
+  "url": "https://api.github.com/users/wtlangford"
+}
+```
 
 
 400 Mb json file
