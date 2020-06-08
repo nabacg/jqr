@@ -24,7 +24,7 @@ impl CmdArgs {
                 input_file: None,
                 query: Some(query.clone())
             }),
-            [] => Ok(CmdArgs {
+            [_] => Ok(CmdArgs {
                 input_file: None,
                 query: None
             }),
