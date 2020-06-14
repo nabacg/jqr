@@ -5,7 +5,7 @@ use std::error::Error;
 use serde_json::{ Value};
 use parser::QueryCmd;
 use std::io::{self, Read};
-use serde_json::json;
+//use serde_json::json;
 mod parser;
 
 #[derive(Debug)]
@@ -42,7 +42,7 @@ fn parse_cmd(cmd_str: &String) -> Result<QueryCmd, &'static str> {
          //   println!("Cmd={:?}", cmd); // ToDo add a --Debug flag to print it out?
             Ok(cmd)
         }
-        Ok((input_left, cmd)) => {
+        Ok((_, cmd)) => {
         //    println!("Cmd={:?} but found unconsumed input={}" , cmd, input_left);
             Ok(cmd)
         }
@@ -107,27 +107,28 @@ fn eval_inner(json:&Value, query: &QueryCmd) {
         }
         QueryCmd::MultiCmd(cmds)  => {     
             if cmds.len() == 1 {
+                // MultiCmd with single cmd can just be handled as single cmd
                 eval_inner(json, &cmds[0]);
             } else {
-              //  let mut val = json; 
+                // create a vec to hold intermediate json results
                 let mut res_vals = vec![json];
                 for cmd in cmds {
+                    //ToDo this is such spagetti code, needs to be extracted into functions
                     match cmd {
                         QueryCmd::MultiArrayIndex(idx) => { 
+                            // allocate Vec for next intermediate Json values 
                             let mut new_res_vals:Vec<&Value> = Vec::new();
                             for val in res_vals {
                                 match val  {
                                     Value::Array(arr) => {
-                                        //val = & arr[idx[0]];
                                         for i in idx {
                                             new_res_vals.push(&arr[*i]);
                                         }
                                     }
-                                    _                  =>  panic!("Can only perform Array Index access on a Json Array!")
+                                    _                 =>  panic!("Can only perform Array Index access on a Json Array!")
                                 }
                             }
-                        res_vals = new_res_vals;                      
-                            
+                            res_vals = new_res_vals;                                                
                         },
                         QueryCmd::KeywordAccess(keys)  => {
                             let mut new_res_vals:Vec<&Value> = Vec::new();
