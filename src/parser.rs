@@ -10,7 +10,7 @@ use nom::error::{ErrorKind};
 use nom::{ InputTakeAtPosition, AsChar};
 
 
-#[derive(Debug, Eq)]
+#[derive(Debug, Eq, Clone)]
 pub enum QueryCmd {
     MultiArrayIndex(Vec<usize>),
     KeywordAccess(Vec<String>),

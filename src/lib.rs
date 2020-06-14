@@ -5,7 +5,7 @@ use std::error::Error;
 use serde_json::{ Value};
 use parser::QueryCmd;
 use std::io::{self, Read};
-//use serde_json::json;
+use serde_json::json;
 mod parser;
 
 #[derive(Debug)]
@@ -91,65 +91,58 @@ fn print_json(val:&Value) {
     }
 }
 
-fn eval_inner(json:&Value, query: &QueryCmd) {
-    match query {
-         QueryCmd::MultiArrayIndex(idxs)  => {
-            match json {
-                Value::Array(vals) =>  for i in idxs {
-                                             print_json(&vals[*i]);
-                                       }
-                _                  =>  panic!("Can only perform Array Index access on a Json Array!")
-            }
-            
-        }
-        QueryCmd::KeywordAccess(keys)  => {
-            multi_key_access(&json, &keys);
-        }
-        QueryCmd::MultiCmd(cmds)  => {     
-            if cmds.len() == 1 {
-                // MultiCmd with single cmd can just be handled as single cmd
-                eval_inner(json, &cmds[0]);
+fn eval(json:Value, query: QueryCmd) -> Value { 
+    match (json, query) {
+        (v@Value::Null, _)       =>  v, 
+        (v@Value::Bool(_), _)    =>  v, 
+        (v@Value::Number(_), _)  =>  v, 
+        (v@Value::String(_), _)  =>  v, 
+        (Value::Array(vs),   QueryCmd::MultiArrayIndex(idxs))  => {
+            if idxs.len() == 1 {
+                json!(vs[idxs[0]])
             } else {
-                // create a vec to hold intermediate json results
-                let mut res_vals = vec![json];
-                for cmd in cmds {
-                    //ToDo this is such spagetti code, needs to be extracted into functions
-                    match cmd {
-                        QueryCmd::MultiArrayIndex(idx) => { 
-                            // allocate Vec for next intermediate Json values 
-                            let mut new_res_vals:Vec<&Value> = Vec::new();
-                            for val in res_vals {
-                                match val  {
-                                    Value::Array(arr) => {
-                                        for i in idx {
-                                            new_res_vals.push(&arr[*i]);
-                                        }
-                                    }
-                                    _                 =>  panic!("Can only perform Array Index access on a Json Array!")
-                                }
-                            }
-                            res_vals = new_res_vals;                                                
-                        },
-                        QueryCmd::KeywordAccess(keys)  => {
-                            let mut new_res_vals:Vec<&Value> = Vec::new();
-                            for rv in res_vals {
-                                let mut val = rv;
-                                for k in keys {
-                                    val = & val[k];
-                               }
-                               new_res_vals.push(&val);
-                            }
-                            res_vals = new_res_vals;
-                        },
-                        _ =>  (),
-                    }
+                let mut arr = vec![];
+            
+                for i in idxs {
+                    arr.push(&vs[i]);
                 }
-                for val in res_vals {
-                    print_json(val);
-                }       
+                json!(arr)
+            }
+
+        }
+        (Value::Array(vs),   cmd@QueryCmd::KeywordAccess(_))     => {
+            let mut res:Vec<Value> = Vec::new();
+            for v in vs {
+                let r = eval(v, cmd.clone()); // ToDo Fix this cloning
+                res.push(r);
+            }
+            json!(res)
+        } 
+        (v@Value::Object(_),  QueryCmd::MultiArrayIndex(_))   => panic!(format!("Cannot perform Array index access on an object! Json Found= {}", serde_json::to_string_pretty(&v).unwrap())),
+        (v@Value::Object(_),  QueryCmd::KeywordAccess(keys)) => {
+            let mut val = &v;
+            for k in keys {
+                val = &val[k];
+            }
+            json!(*val)
+        }
+        (json,  QueryCmd::MultiCmd(cmds))   => {
+            if cmds.len() == 1 {
+                eval(json, cmds[0].clone()) // ToDo - Not ideal, but let's try to deal with it later
+            } else {
+                let mut val = json; 
+                for cmd in cmds {
+                    val = eval(val, cmd);
+                }
+                val
             }
         }
     }
+}
+
+fn eval_inner(json:Value, query: QueryCmd) {
+   let res_json = eval(json, query);
+   print_json(&res_json)
 }
 
 pub fn eval_cmd(cmd: CmdArgs) -> Result<(), Box<dyn Error>> {
@@ -159,7 +152,7 @@ pub fn eval_cmd(cmd: CmdArgs) -> Result<(), Box<dyn Error>> {
     };
     
     match cmd.query.map(|query| parse_cmd(&query)) {
-        Some(Ok(cmd))   => eval_inner(&json, &cmd), 
+        Some(Ok(cmd))   => eval_inner(json, cmd), 
         Some(Err(msg))  => println!("Failed at cmd parsing with error= {}", msg), // Seems like too many levels of error handling
         None            => print_json(&json)
     }
