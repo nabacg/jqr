@@ -5,6 +5,7 @@ use std::error::Error;
 use serde_json::{ Value};
 use parser::QueryCmd;
 use std::io::{self, Read};
+use serde_json::json;
 mod parser;
 
 #[derive(Debug)]
@@ -71,41 +72,16 @@ fn read_json_from_stdin() -> Result<Value, Box<dyn Error>> {
     Ok(json)
 }
 
-fn multi_key_access(json: &Value, keys: &[String]) -> String {
+fn multi_key_access(json: &Value, keys: &[String]) {
     if keys.is_empty() {
-        json.to_string()
+        print_json(&json)
     } else {
         let k = &keys[0];
         multi_key_access(&json[k], &keys[1..])
     }
 } 
 
-// fn multi_key_access_V(json: &Value, keys: &[String]) -> &'static Value {
-//     if keys.is_empty() {
-//         json
-//     } else {
-//         let k = &keys[0];
-//         multi_key_access_V(&json[k], &keys[1..])
-//     }
-// } 
 
-// fn find_value(json: &Value, cmd: QueryCmd) -> Vec<&Value> {
-//     match cmd {
-//         QueryCmd::MultiArrayIndex(idxs)  => {
-//             let vals = json.as_array().unwrap();
-//             idxs.iter().map(|i| &vals[*i]).collect::<Vec<_>>()
-//         }
-//         QueryCmd::KeywordAccess(keys)  => vec![multi_key_access_V(&json, &keys)],
-//         QueryCmd::MultiCmd(cmds)  => {
-//             if cmds.is_empty() {
-//                 vec![json]
-//             } else  {
-//                 let v = find_value(json, cmds[0]);
-//                 find_value(&v, QueryCmd::MultiCmd(cmds[1..].to_vec()))
-//             }
-//         }
-//     }
-// }
 
 fn print_json(val:&Value) {
     if let Ok(s) = serde_json::to_string_pretty(val) {
@@ -117,36 +93,59 @@ fn print_json(val:&Value) {
 
 fn eval_inner(json:&Value, query: &QueryCmd) {
     match query {
-        QueryCmd::MultiArrayIndex(idxs)  => {
-            let vals = json.as_array().unwrap();
-            for i in idxs {
-                print_json(&vals[*i]);
+         QueryCmd::MultiArrayIndex(idxs)  => {
+            match json {
+                Value::Array(vals) =>  for i in idxs {
+                                             print_json(&vals[*i]);
+                                       }
+                _                  =>  panic!("Can only perform Array Index access on a Json Array!")
             }
+            
         }
         QueryCmd::KeywordAccess(keys)  => {
-            let string_val = multi_key_access(&json, &keys);
-            println!("{}", string_val);
+            multi_key_access(&json, &keys);
         }
-        QueryCmd::MultiCmd(cmds)  => {
-           
+        QueryCmd::MultiCmd(cmds)  => {     
             if cmds.len() == 1 {
                 eval_inner(json, &cmds[0]);
             } else {
-                let mut val = json; 
-                // This needs to be refactored, maybe using a function like find_value
+              //  let mut val = json; 
+                let mut res_vals = vec![json];
                 for cmd in cmds {
                     match cmd {
                         QueryCmd::MultiArrayIndex(idx) => { 
-                            let arr  = val.as_array().unwrap();                            
-                            val = & arr[idx[0]];
+                            let mut new_res_vals:Vec<&Value> = Vec::new();
+                            for val in res_vals {
+                                match val  {
+                                    Value::Array(arr) => {
+                                        //val = & arr[idx[0]];
+                                        for i in idx {
+                                            new_res_vals.push(&arr[*i]);
+                                        }
+                                    }
+                                    _                  =>  panic!("Can only perform Array Index access on a Json Array!")
+                                }
+                            }
+                        res_vals = new_res_vals;                      
+                            
                         },
-                        QueryCmd::KeywordAccess(keys)  => for k in keys {
-                            val = & val[k];
+                        QueryCmd::KeywordAccess(keys)  => {
+                            let mut new_res_vals:Vec<&Value> = Vec::new();
+                            for rv in res_vals {
+                                let mut val = rv;
+                                for k in keys {
+                                    val = & val[k];
+                               }
+                               new_res_vals.push(&val);
+                            }
+                            res_vals = new_res_vals;
                         },
-                        _ => val = & val,
+                        _ =>  (),
                     }
                 }
-                print_json(val);
+                for val in res_vals {
+                    print_json(val);
+                }       
             }
         }
     }

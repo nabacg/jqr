@@ -31,7 +31,9 @@ impl PartialEq for QueryCmd {
 
 fn alpha_or_spec_char(input: &str) -> IResult<&str, &str>
 {
-    input.split_at_position1_complete(|item| !(item.is_alpha() || item == '-' || item == '_'), ErrorKind::Alpha)
+    //ToDo this predicate needs to be rewritten as not(char('.')) because I think we allow pretty much every charater in Json keyword, don't we? 
+    // but maybe even '.' should be allowed if quoted?
+    input.split_at_position1_complete(|item| !(item.is_alphanum() || item == '-' || item == '_' || item == '?'), ErrorKind::Alpha)
 }
 
 fn string_list(s: &str) -> IResult<&str, Vec<String>> {
@@ -39,7 +41,8 @@ fn string_list(s: &str) -> IResult<&str, Vec<String>> {
 }
 
 
-named!(keyword_access(&str) -> QueryCmd, map!(ws!(tuple!(tag!("{"), call!(string_list), tag!("}"))), |(_, ks, _)| QueryCmd::KeywordAccess(ks)));
+//named!(keyword_access(&str) -> QueryCmd, map!(ws!(tuple!(tag!("{"), call!(string_list), tag!("}"))), |(_, ks, _)| QueryCmd::KeywordAccess(ks)));
+named!(keyword_access(&str) -> QueryCmd, map!(ws!(call!(string_list)), |ks| QueryCmd::KeywordAccess(ks)));
 
 named!(int_list(&str) ->  Vec<usize>,  ws!(separated_list!(tag(","), map_res(digit1, |s: &str| s.parse::<usize>()))));
 
