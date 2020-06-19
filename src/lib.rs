@@ -36,7 +36,6 @@ impl CmdArgs {
 
 
 fn parse_cmd(cmd_str: &String) -> Result<QueryCmd, &'static str> {
-    // https://github.com/Geal/nom/blob/master/doc/making_a_new_parser_from_scratch.md
     match parser::parse(&cmd_str) {
         Ok(("", cmd)) => {
          //   println!("Cmd={:?}", cmd); // ToDo add a --Debug flag to print it out?
@@ -72,14 +71,14 @@ fn read_json_from_stdin() -> Result<Value, Box<dyn Error>> {
     Ok(json)
 }
 
-fn multi_key_access(json: &Value, keys: &[String]) {
-    if keys.is_empty() {
-        print_json(&json)
-    } else {
-        let k = &keys[0];
-        multi_key_access(&json[k], &keys[1..])
-    }
-} 
+// fn multi_key_access(json: &Value, keys: &[String]) {
+//     if keys.is_empty() {
+//         print_json(&json)
+//     } else {
+//         let k = &keys[0];
+//         multi_key_access(&json[k], &keys[1..])
+//     }
+// } 
 
 
 
@@ -91,6 +90,8 @@ fn print_json(val:&Value) {
     }
 }
 
+// ideally query should be an immutable ref, i.e. &QueryCmd but then we can't pattern match on both (json, query) because of Rust reasons.. 
+// but it would be great to solve it to avoid cloing QueryCmd on each recursive call
 fn eval(json:Value, query: QueryCmd) -> Value { 
     match (json, query) {
         (v@Value::Null, _)       =>  v, 
@@ -110,16 +111,16 @@ fn eval(json:Value, query: QueryCmd) -> Value {
             }
 
         }
-        (Value::Array(vs),   cmd@QueryCmd::KeywordAccess(_))     => {
+        (Value::Array(vs),   cmd@QueryCmd::KeywordAccess(_))   => {
             let mut res:Vec<Value> = Vec::new();
             for v in vs {
                 let r = eval(v, cmd.clone()); // ToDo Fix this cloning
-                res.push(r);
+                res.push(r); 
             }
             json!(res)
         } 
         (v@Value::Object(_),  QueryCmd::MultiArrayIndex(_))   => panic!(format!("Cannot perform Array index access on an object! Json Found= {}", serde_json::to_string_pretty(&v).unwrap())),
-        (v@Value::Object(_),  QueryCmd::KeywordAccess(keys)) => {
+        (v@Value::Object(_),  QueryCmd::KeywordAccess(keys))  => {
             let mut val = &v;
             for k in keys {
                 val = &val[k];
