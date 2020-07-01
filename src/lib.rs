@@ -111,6 +111,21 @@ fn eval(json:Value, query: QueryCmd) -> Value {
             }
 
         }
+        (Value::Object(o), QueryCmd::ListKeys) => {
+            let keys: Vec<&String> = o.keys().collect();
+            json!(keys)
+        }
+        (Value::Object(o), QueryCmd::ListValues) => {
+            let keys: Vec<&Value> = o.values().collect();
+            json!(keys)
+        }
+        (v@Value::Array(_), QueryCmd::ListValues) => {
+            v
+        }
+        (Value::Array(arr), QueryCmd::ListKeys) => {
+            let indices: Vec<usize> = (0..arr.len()).collect();
+            json!(indices)
+        }
         (Value::Array(vs),   cmd@QueryCmd::KeywordAccess(_))   => {
             let mut res:Vec<Value> = Vec::new();
             for v in vs {

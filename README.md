@@ -74,7 +74,7 @@ curl 'https://api.github.com/repos/stedolan/jq/commits?per_page=5' > sample-gith
 ```
 
 ```bash
-jqr --release sample-github.json "[0] | {author}"
+jqr sample-github.json "[0] | {author}"
 ```
 ```json 
 {
@@ -98,7 +98,59 @@ jqr --release sample-github.json "[0] | {author}"
   "url": "https://api.github.com/users/itchyny"
 }
 ```
+### List keys or values 
+```bash
+jqr sample-github.json "[0] | committer | .vals"
 
+```
+```json
+[
+  "avatar_url",
+  "events_url",
+  "followers_url",
+  "following_url",
+  "gists_url",
+  "gravatar_id",
+  "html_url",
+  "id",
+  "login",
+  "node_id",
+  "organizations_url",
+  "received_events_url",
+  "repos_url",
+  "site_admin",
+  "starred_url",
+  "subscriptions_url",
+  "type",
+  "url"
+]
+```
+```bash
+jqr sample-github.json "[0] | committer | .vals"
+
+```
+```json
+[
+  "avatar_url",
+  "events_url",
+  "followers_url",
+  "following_url",
+  "gists_url",
+  "gravatar_id",
+  "html_url",
+  "id",
+  "login",
+  "node_id",
+  "organizations_url",
+  "received_events_url",
+  "repos_url",
+  "site_admin",
+  "starred_url",
+  "subscriptions_url",
+  "type",
+  "url"
+]
+```
 ### Access single field
 ```bash
 jqr --release sample-github.json "[0] | { parents } | [0] | {url}"
