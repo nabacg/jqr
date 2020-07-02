@@ -1,14 +1,13 @@
 use nom::{
   IResult,
   bytes::complete::{tag},
-  combinator::{map_res, map},
+  combinator::{map_res, map, all_consuming},
 };
 use nom::multi::{separated_list};
 use nom::character::complete::{ digit1};
 use nom::branch::alt;
 use nom::error::{ErrorKind};
 use nom::{ InputTakeAtPosition, AsChar};
-
 
 #[derive(Debug, Eq, Clone)]
 pub enum QueryCmd {
@@ -26,6 +25,8 @@ impl PartialEq for QueryCmd {
             (QueryCmd::MultiArrayIndex(xs), QueryCmd::MultiArrayIndex(ys)) => xs == ys,
             (QueryCmd::KeywordAccess(xs), QueryCmd::KeywordAccess(ys)) => xs == ys,
             (QueryCmd::MultiCmd(xs), QueryCmd::MultiCmd(ys)) => xs == ys,
+            (QueryCmd::ListKeys, QueryCmd::ListKeys)            => true, 
+            (QueryCmd::ListValues, QueryCmd::ListValues)        => true,
             _ => false
         }
     }
@@ -54,17 +55,20 @@ named!(int_list(&str) ->  Vec<usize>,  ws!(separated_list!(tag(","), map_res(dig
 
 named!(array_index_access(&str) -> QueryCmd, map!(ws!(tuple!(tag!("["), call!(int_list), tag!("]"))), |(_, ids, _)| QueryCmd::MultiArrayIndex(ids)));
 
-named!(top_forms(&str) -> QueryCmd, alt!(list_keys_or_vals | array_index_access | keyword_access));
+named!(single_cmd(&str) -> QueryCmd, alt!(list_keys_or_vals | array_index_access | keyword_access));
 
-// named!(multi_cmd_list( &str) -> QueryCmd, 
-//     map!(ws!(separated_list!(tag("|"),  
-//      alt((alt((list_keys_or_vals,  array_index_access)),keyword_access)))),
-//       |cmds| QueryCmd::MultiCmd(cmds)));
+fn single_top_level_cmd(s: &str) -> IResult<&str, QueryCmd> {
+    // all_consuming - makes sure parser succeeds only if all input was consumed 
+    // https://docs.rs/nom/5.0.0/nom/combinator/fn.all_consuming.html?search=
+    all_consuming(single_cmd)(s)
+}
+
 named!(multi_cmd_list( &str) -> QueryCmd, 
-    map!(ws!(separated_list!(tag("|"),  top_forms)),
+    map!(ws!(separated_list!(tag("|"),  single_cmd)),
       |cmds| QueryCmd::MultiCmd(cmds)));
-
-named!(top_level_parser(&str) -> QueryCmd, alt!( list_keys_or_vals | multi_cmd_list));
+//https://docs.rs/nom/5.0.0/nom/macro.alt.html#behaviour-of-alt
+named!(top_level_parser(&str) -> QueryCmd, alt!( single_top_level_cmd | multi_cmd_list));
+//named!(top_level_parser(&str) -> QueryCmd, multi_cmd_list);
 
 pub fn parse(input: &str) -> IResult<&str, QueryCmd> {
     top_level_parser(input)
@@ -94,13 +98,13 @@ mod parser_tests {
 
     #[test]
     fn squiggly_paren_keywords_test() {
-        assert_eq!(keyword_access(&"{}"),                Ok(("", QueryCmd::KeywordAccess(vec![]))));
-        assert_eq!(keyword_access(&"{abc}"),             Ok(("", QueryCmd::KeywordAccess(vec!["abc".to_string()]))));
-        assert_eq!(keyword_access(&"{abc.def.ghi}"),     Ok(("", QueryCmd::KeywordAccess(vec!["abc".to_string(), "def".to_string(), "ghi".to_string()]))));
-        assert_eq!(keyword_access(&"{TotalDuplicateImpressionBucketClicks}"),     Ok(("", QueryCmd::KeywordAccess(vec!["TotalDuplicateImpressionBucketClicks".to_string()]))));
+        assert_eq!(keyword_access(&""),                Ok(("", QueryCmd::KeywordAccess(vec![]))));
+        assert_eq!(keyword_access(&"abc"),             Ok(("", QueryCmd::KeywordAccess(vec!["abc".to_string()]))));
+        assert_eq!(keyword_access(&"abc.def.ghi"),     Ok(("", QueryCmd::KeywordAccess(vec!["abc".to_string(), "def".to_string(), "ghi".to_string()]))));
+        assert_eq!(keyword_access(&"TotalDuplicateImpressionBucketClicks"),     Ok(("", QueryCmd::KeywordAccess(vec!["TotalDuplicateImpressionBucketClicks".to_string()]))));
        
 
-        assert_eq!(keyword_access(&"{abc-e.edf_g}"),     Ok(("", QueryCmd::KeywordAccess(vec!["abc-e".to_string(), "edf_g".to_string()]))));
+        assert_eq!(keyword_access(&"abc-e.edf_g"),     Ok(("", QueryCmd::KeywordAccess(vec!["abc-e".to_string(), "edf_g".to_string()]))));
        
     }
 
@@ -108,19 +112,19 @@ mod parser_tests {
 
     #[test]
     fn multi_cmd_list_test() {
-        assert_eq!(multi_cmd_list(&"{aaa}"), Ok(("", QueryCmd::MultiCmd(vec![
+        assert_eq!(multi_cmd_list(&"aaa"), Ok(("", QueryCmd::MultiCmd(vec![
             QueryCmd::KeywordAccess(vec!["aaa".to_string()])
             ]))));
         assert_eq!(multi_cmd_list(&"[0]"), Ok(("", QueryCmd::MultiCmd(vec![
             QueryCmd::MultiArrayIndex(vec![0])]))));
-        assert_eq!(multi_cmd_list(&"[0] | {abc}"), Ok(("", QueryCmd::MultiCmd(vec![
+        assert_eq!(multi_cmd_list(&"[0] | abc"), Ok(("", QueryCmd::MultiCmd(vec![
                                                                 QueryCmd::MultiArrayIndex(vec![0]), 
                                                                 QueryCmd::KeywordAccess(vec!["abc".to_string()])
                                                                 ]))));
     }
     #[test]
     fn parse_test() {
-        assert_eq!(parse(&"[0]|{abc}"), Ok(("", QueryCmd::MultiCmd(vec![
+        assert_eq!(parse(&"[0]|abc"), Ok(("", QueryCmd::MultiCmd(vec![
                                                                 QueryCmd::MultiArrayIndex(vec![0]), 
                                                                 QueryCmd::KeywordAccess(vec!["abc".to_string()])]))));
     }
@@ -130,14 +134,23 @@ mod parser_tests {
 
     #[test]
     fn list_vals_or_keys_test() {
-        assert_eq!(array_index_access(&".vals"),      Ok(("", QueryCmd::ListValues)));
-        assert_eq!(array_index_access(&".keys"), Ok(("", QueryCmd::ListKeys)));
+        assert_eq!(parse(&".vals"), Ok(("", QueryCmd::ListValues)));
+        assert_eq!(parse(&".keys"), Ok(("", QueryCmd::ListKeys)));
 
-        assert_eq!(parse(&"[0] | {ArrayField} | .keys"), Ok(("", QueryCmd::MultiCmd(vec![
+        assert_eq!(parse(&"[0] | ArrayField | .keys"), Ok(("", QueryCmd::MultiCmd(vec![
             QueryCmd::MultiArrayIndex(vec![0]), 
             QueryCmd::KeywordAccess(vec!["ArrayField".to_string()]),
             QueryCmd::ListKeys
             ]))));
+
+            assert_eq!(parse(&"[0] | ArrayField | .keys | SubTree | [4] | .vals"), Ok(("", QueryCmd::MultiCmd(vec![
+                QueryCmd::MultiArrayIndex(vec![0]), 
+                QueryCmd::KeywordAccess(vec!["ArrayField".to_string()]),
+                QueryCmd::ListKeys,
+                QueryCmd::KeywordAccess(vec!["SubTree".to_string()]),
+                QueryCmd::MultiArrayIndex(vec![4]),
+                QueryCmd::ListValues,
+                ]))));
     }
 
 
