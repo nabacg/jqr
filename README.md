@@ -187,7 +187,31 @@ jqr sample-github.json "[0] | { myEventName = author.events_url; author = commit
   "author": "itchyny",
   "myEventName": "https://api.github.com/users/itchyny/events{/privacy}"
 }
+
+- get parent url 
+```bash 
+ jqr sample-github.json "[0] | { parentUrl = parents | [0] | url } "
+ ```
+- get first parent url, parent sha and child sha
+
+```bash
+jqr sample-github.json "[0] | { parentUrl = parents | [0] | url; parentSha = parents | [0] | sha; childSha = sha}"
 ```
+
+```json 
+{
+  "childSha": "6306ac89667cf35f47ddc40aa0630546c57e387f",
+  "parentSha": "9163e09605383a88f6e953d6cb5cc2aebe18c84f",
+  "parentUrl": "https://api.github.com/repos/stedolan/jq/commits/9163e09605383a88f6e953d6cb5cc2aebe18c84f"
+}
+```
+
+```
+#### Create new obj with subcmd and then use it in next expr
+```bash
+jqr sample-github.json  "[0] | { parentUrl = parents | [0]  } | parentUrl.url"
+```
+
 
 ### linux pipes
 ```bash

@@ -57,7 +57,7 @@ named!(int_list(&str) ->  Vec<usize>,  ws!(separated_list!(tag(","), map_res(dig
 
 named!(array_index_access(&str) -> QueryCmd, map!(ws!(tuple!(tag!("["), call!(int_list), tag!("]"))), |(_, ids, _)| QueryCmd::ArrayIndexAccess(ids)));
 
-named!(prop_to_key(&str) -> (String, QueryCmd),  map!(ws!(tuple!(alpha1, tag!("="), keyword_access)), |(prop_name,_, kw_access)| (prop_name.to_string(), kw_access)));
+named!(prop_to_key(&str) -> (String, QueryCmd),  map!(ws!(tuple!(alpha1, tag!("="), top_level_parser)), |(prop_name,_, kw_access)| (prop_name.to_string(), kw_access)));
 
 named!(props_to_keys(&str) -> Vec<(String, QueryCmd)>, ws!(separated_list!(tag!(";"), prop_to_key)));
 
@@ -137,6 +137,29 @@ mod parser_tests {
         assert_eq!(parse(&"[0]|abc"), Ok(("", QueryCmd::MultiCmd(vec![
                                                                 QueryCmd::ArrayIndexAccess(vec![0]), 
                                                                 QueryCmd::KeywordAccess(vec!["abc".to_string()])]))));
+
+        assert_eq!(parse(&"[0] | ArrayField | .keys | SubTree | [4] | .vals"), Ok(("", QueryCmd::MultiCmd(vec![
+                                                                    QueryCmd::ArrayIndexAccess(vec![0]), 
+                                                                    QueryCmd::KeywordAccess(vec!["ArrayField".to_string()]),
+                                                                    QueryCmd::ListKeys,
+                                                                    QueryCmd::KeywordAccess(vec!["SubTree".to_string()]),
+                                                                    QueryCmd::ArrayIndexAccess(vec![4]),
+                                                                    QueryCmd::ListValues,
+        ]))));
+                                                    
+        assert_eq!(parse(&"[0] | ArrayField | { a = a.b.c; b = a | [0] | d }"), 
+            Ok(("", QueryCmd::MultiCmd(vec![
+                                QueryCmd::ArrayIndexAccess(vec![0]), 
+                                QueryCmd::KeywordAccess(vec!["ArrayField".to_string()]),
+                                QueryCmd::TransformIntoObject(vec![
+                                    ("a".to_string(), QueryCmd::KeywordAccess(vec!["a".to_string(), "b".to_string(), "c".to_string()])),
+                                    ("b".to_string(), QueryCmd::MultiCmd(vec![
+                                        QueryCmd::KeywordAccess(vec!["a".to_string()]),
+                                        QueryCmd::ArrayIndexAccess(vec![0]),
+                                        QueryCmd::KeywordAccess(vec!["d".to_string()])
+                                    ]))
+                                ])
+        ]))));
     }
 
 
@@ -151,16 +174,9 @@ mod parser_tests {
             QueryCmd::ArrayIndexAccess(vec![0]), 
             QueryCmd::KeywordAccess(vec!["ArrayField".to_string()]),
             QueryCmd::ListKeys
-            ]))));
+        ]))));
 
-            assert_eq!(parse(&"[0] | ArrayField | .keys | SubTree | [4] | .vals"), Ok(("", QueryCmd::MultiCmd(vec![
-                QueryCmd::ArrayIndexAccess(vec![0]), 
-                QueryCmd::KeywordAccess(vec!["ArrayField".to_string()]),
-                QueryCmd::ListKeys,
-                QueryCmd::KeywordAccess(vec!["SubTree".to_string()]),
-                QueryCmd::ArrayIndexAccess(vec![4]),
-                QueryCmd::ListValues,
-                ]))));
+
     }
 
 

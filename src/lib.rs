@@ -79,7 +79,7 @@ fn print_json(val:&Value) {
         println!("{}", val.to_string());
     }
 }
-
+// this still doesn't work jqr sample-github.json "[0] | { parent_sha = parents | [0] | sha; sha = sha }"
 // ideally query should be an immutable ref, i.e. &QueryCmd but then we can't pattern match on both (json, query) because of Rust reasons.. 
 // but it would be great to solve it to avoid cloing QueryCmd on each recursive call
 fn eval(json:Value, query: QueryCmd) -> Value { 
