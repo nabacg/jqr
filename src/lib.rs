@@ -3,6 +3,7 @@ extern crate nom;
 use std::fs;
 use std::error::Error;
 use serde_json::{ Value};
+use serde_json::map::{ Map};
 use parser::QueryCmd;
 use std::io::{self, Read};
 use serde_json::json;
@@ -71,17 +72,6 @@ fn read_json_from_stdin() -> Result<Value, Box<dyn Error>> {
     Ok(json)
 }
 
-// fn multi_key_access(json: &Value, keys: &[String]) {
-//     if keys.is_empty() {
-//         print_json(&json)
-//     } else {
-//         let k = &keys[0];
-//         multi_key_access(&json[k], &keys[1..])
-//     }
-// } 
-
-
-
 fn print_json(val:&Value) {
     if let Ok(s) = serde_json::to_string_pretty(val) {
         println!("{}", s)
@@ -98,7 +88,7 @@ fn eval(json:Value, query: QueryCmd) -> Value {
         (v@Value::Bool(_), _)    =>  v, 
         (v@Value::Number(_), _)  =>  v, 
         (v@Value::String(_), _)  =>  v, 
-        (Value::Array(vs),   QueryCmd::MultiArrayIndex(idxs))  => {
+        (Value::Array(vs),   QueryCmd::ArrayIndexAccess(idxs))  => {
             if idxs.len() == 1 {
                 json!(vs[idxs[0]])
             } else {
@@ -129,12 +119,12 @@ fn eval(json:Value, query: QueryCmd) -> Value {
         (Value::Array(vs),   cmd@QueryCmd::KeywordAccess(_))   => {
             let mut res:Vec<Value> = Vec::new();
             for v in vs {
-                let r = eval(v, cmd.clone()); // ToDo Fix this cloning
+                let r = eval(v, cmd.clone()); // ToDo this needs fixing this cloning
                 res.push(r); 
             }
             json!(res)
         } 
-        (v@Value::Object(_),  QueryCmd::MultiArrayIndex(_))   => panic!(format!("Cannot perform Array index access on an object! Json Found= {}", serde_json::to_string_pretty(&v).unwrap())),
+        (v@Value::Object(_),  QueryCmd::ArrayIndexAccess(_))   => panic!(format!("Cannot perform Array index access on an object! Json Found= {}", serde_json::to_string_pretty(&v).unwrap())),
         (v@Value::Object(_),  QueryCmd::KeywordAccess(keys))  => {
             let mut val = &v;
             for k in keys {
@@ -142,16 +132,22 @@ fn eval(json:Value, query: QueryCmd) -> Value {
             }
             json!(*val)
         }
-        (json,  QueryCmd::MultiCmd(cmds))   => {
-            if cmds.len() == 1 {
-                eval(json, cmds[0].clone()) // ToDo - Not ideal, but let's try to deal with it later
-            } else {
-                let mut val = json; 
-                for cmd in cmds {
-                    val = eval(val, cmd);
-                }
-                val
+        (json, QueryCmd::TransformIntoObject(prop_mapping)) => {
+            let mut props:Map<String,Value> = Map::new();
+
+            for (prop_name, prop_access_cmd) in prop_mapping {
+                let prop_val = eval(json.clone(), prop_access_cmd); // Todo this cloning sucks!
+                props.insert(prop_name, prop_val);
             }
+
+            Value::Object(props)
+        }
+        (json,  QueryCmd::MultiCmd(cmds))   => {
+            let mut val = json; 
+            for cmd in cmds {
+                val = eval(val, cmd);
+            }
+            val
         }
     }
 }
