@@ -79,9 +79,10 @@ fn print_json(val:&Value) {
         println!("{}", val.to_string());
     }
 }
-// this still doesn't work jqr sample-github.json "[0] | { parent_sha = parents | [0] | sha; sha = sha }"
+
 // ideally query should be an immutable ref, i.e. &QueryCmd but then we can't pattern match on both (json, query) because of Rust reasons.. 
 // but it would be great to solve it to avoid cloing QueryCmd on each recursive call
+// ToDo - could I use lifetimes to avoid cloning QueryCmd here?
 fn eval(json:Value, query: QueryCmd) -> Value { 
     match (json, query) {
         (v@Value::Null, _)       =>  v, 
@@ -136,7 +137,7 @@ fn eval(json:Value, query: QueryCmd) -> Value {
             let mut props:Map<String,Value> = Map::new();
 
             for (prop_name, prop_access_cmd) in prop_mapping {
-                let prop_val = eval(json.clone(), prop_access_cmd); // Todo this cloning sucks!
+                let prop_val = eval(json.clone(), prop_access_cmd); // Todo this cloning sucks! Can I do lifetimes to limit this?
                 props.insert(prop_name, prop_val);
             }
 

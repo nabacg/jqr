@@ -57,7 +57,7 @@ named!(int_list(&str) ->  Vec<usize>,  ws!(separated_list!(tag(","), map_res(dig
 
 named!(array_index_access(&str) -> QueryCmd, map!(ws!(tuple!(tag!("["), call!(int_list), tag!("]"))), |(_, ids, _)| QueryCmd::ArrayIndexAccess(ids)));
 
-named!(prop_to_key(&str) -> (String, QueryCmd),  map!(ws!(tuple!(alpha1, tag!("="), top_level_parser)), |(prop_name,_, kw_access)| (prop_name.to_string(), kw_access)));
+named!(prop_to_key(&str) -> (String, QueryCmd),  map!(ws!(tuple!(alpha_or_spec_char, tag!("="), top_level_parser)), |(prop_name,_, kw_access)| (prop_name.to_string(), kw_access)));
 
 named!(props_to_keys(&str) -> Vec<(String, QueryCmd)>, ws!(separated_list!(tag!(";"), prop_to_key)));
 
@@ -118,8 +118,6 @@ mod parser_tests {
        
     }
 
-
-
     #[test]
     fn multi_cmd_list_test() {
         assert_eq!(multi_cmd_list(&"aaa"), Ok(("", QueryCmd::MultiCmd(vec![
@@ -162,9 +160,6 @@ mod parser_tests {
         ]))));
     }
 
-
-
-
     #[test]
     fn list_vals_or_keys_test() {
         assert_eq!(parse(&".vals"), Ok(("", QueryCmd::ListValues)));
@@ -178,8 +173,6 @@ mod parser_tests {
 
 
     }
-
-
 
     #[test]
     fn transform_into_object_test() {

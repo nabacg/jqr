@@ -206,7 +206,19 @@ jqr sample-github.json "[0] | { parentUrl = parents | [0] | url; parentSha = par
 }
 ```
 
+## nested multi cmds
+```bash
+jqr sample-github.json "[0] | { parentSha = parents | [0] | sha; sha = sha }"
 ```
+```json
+{
+  "parentSha": "9163e09605383a88f6e953d6cb5cc2aebe18c84f",
+  "sha": "6306ac89667cf35f47ddc40aa0630546c57e387f"
+}
+```
+
+
+
 #### Create new obj with subcmd and then use it in next expr
 ```bash
 jqr sample-github.json  "[0] | { parentUrl = parents | [0]  } | parentUrl.url"
