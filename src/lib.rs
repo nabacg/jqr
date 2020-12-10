@@ -116,7 +116,13 @@ fn eval(json:Value, query: QueryCmd) -> Value {
         (Value::Array(arr), QueryCmd::ListKeys) => {
             let indices: Vec<usize> = (0..arr.len()).collect();
             json!(indices)
-        }
+        },
+        (Value::Array(arr), QueryCmd::Count) => {
+            json!(arr.len())
+        },
+        (Value::Object(obj), QueryCmd::Count) => {
+            json!(obj.len())
+        },
         (Value::Array(vs),   cmd@QueryCmd::KeywordAccess(_))   => {
             let mut res:Vec<Value> = Vec::new();
             for v in vs {
@@ -141,7 +147,36 @@ fn eval(json:Value, query: QueryCmd) -> Value {
                 props.insert(prop_name, prop_val);
             }
 
-            Value::Object(props)
+            if props.iter().all(|(_, v)| v.is_array())
+            {
+                let vals: Vec<&Value> =  props.values().collect(); // props.iter().map(|(_, v)| v).collect();
+                let names: Vec<&String> = props.keys().collect();
+              
+                //
+                let shortest:usize = vals.iter().map(|v| v.as_array().unwrap().len()).max().unwrap();
+                // .fold(std::usize::MAX, |acc, v|  { 
+                //     let v_len = v.as_array().map(|a| a.len());
+                //     if v_len.map(|l| l > acc)  == Some(true) {
+                //         v_len.unwrap()
+                //       } else {
+                //           acc
+                //       }
+                // } );
+
+                let mut res:Vec<Value> = Vec::new();
+                for i in 0..shortest {
+                    let mut newProps:Map<String,Value> = Map::new();
+                    for j in 0..names.len() {
+                        newProps.insert(names[j].clone(), vals[j][i].clone());
+                    }
+                    res.push(Value::Object(newProps));
+                }
+                json!(res)
+            } else {
+                Value::Object(props)
+            }
+
+           
         }
         (json,  QueryCmd::MultiCmd(cmds))   => {
             let mut val = json; 
