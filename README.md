@@ -13,6 +13,9 @@ jqr sample-github.json "[0] | {parents} | [0] | { html_url }"
 
 
 # Sample use 
+```
+jqr 004ff2c5-7ed0-433b-8638-e6ceeceb1d09-7 "Records | [0] | { firstDate = FirstDate; data=  Details | [0,2,23] | {clk = Clicks;dt = Date;AdType = Grouping.AdTypeId} }"
+```
 ## No Cmd Args
 No argument just pretty prints json contents
 ```bash

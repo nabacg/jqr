@@ -15,6 +15,7 @@ pub enum QueryCmd {
     KeywordAccess(Vec<String>),
     MultiCmd(Vec<QueryCmd>),
     TransformIntoObject(Vec<(String, QueryCmd)>),
+    FunCallCmd(String, Vec<QueryCmd>),
     ListKeys,
     ListValues,
     Count
@@ -29,6 +30,7 @@ impl PartialEq for QueryCmd {
             (QueryCmd::ListKeys, QueryCmd::ListKeys) => true,
             (QueryCmd::ListValues, QueryCmd::ListValues) => true,
             (QueryCmd::Count, QueryCmd::Count) => true,
+            (QueryCmd::FunCallCmd(fn1, args1), QueryCmd::FunCallCmd(fn2, args2)) => fn1 == fn2 && args1 == args2,
             (QueryCmd::TransformIntoObject(x_ps), QueryCmd::TransformIntoObject(y_ps)) => {
                 x_ps == y_ps
             }
@@ -50,7 +52,7 @@ fn string_list(s: &str) -> IResult<&str, Vec<String>> {
     separated_list(tag("."), map(alpha_or_spec_char, |s: &str| s.to_string()))(s)
 }
 
-named!(list_keys_or_vals(&str) -> QueryCmd, alt!(
+named!(dot_funcall_cmd(&str) -> QueryCmd, alt!(
     tag!(".vals") => { |_| QueryCmd::ListValues} |
     tag!(".keys") => { |_| QueryCmd::ListKeys } |
     tag!(".count") => { |_| QueryCmd::Count}
@@ -69,7 +71,10 @@ named!(props_to_keys(&str) -> Vec<(String, QueryCmd)>, ws!(separated_list!(tag!(
 
 named!(into_object_prop_map(&str) -> QueryCmd, map!(ws!(tuple!(tag!("{"), props_to_keys, tag!("}"))), |(_, props, _)| QueryCmd::TransformIntoObject(props)));
 
-named!(single_cmd(&str) -> QueryCmd, alt!(into_object_prop_map | list_keys_or_vals | array_index_access | keyword_access ));
+named!(funcall_cmd(&str) -> QueryCmd, map!(ws!(tuple!(alpha_or_spec_char, tag!("("), separated_list!(tag!(","), top_level_parser), tag!(")"))),
+ |(fn_name, _, args, _)| QueryCmd::FunCallCmd(fn_name.to_string(), args) ));
+
+named!(single_cmd(&str) -> QueryCmd, alt!(into_object_prop_map | dot_funcall_cmd | array_index_access | complete!(funcall_cmd) | keyword_access ));
 
 fn single_top_level_cmd(s: &str) -> IResult<&str, QueryCmd> {
     // all_consuming - makes sure parser succeeds only if all input was consumed
@@ -81,13 +86,9 @@ named!(multi_cmd_list( &str) -> QueryCmd,
     map!(ws!(separated_list!(tag("|"),  single_cmd)),
       |cmds| QueryCmd::MultiCmd(cmds)));
 
-fn all_consuming_multi_cmd(s: &str) -> IResult<&str, QueryCmd> {
-    all_consuming(multi_cmd_list)(s)
-}
 
 //https://docs.rs/nom/5.0.0/nom/macro.alt.html#behaviour-of-alt
-named!(top_level_parser(&str) -> QueryCmd, alt!(  single_top_level_cmd | multi_cmd_list | single_cmd   ));
-//named!(top_level_parser(&str) -> QueryCmd, multi_cmd_list);
+named!(top_level_parser(&str) -> QueryCmd, alt!(  single_top_level_cmd | multi_cmd_list   ));
 
 pub fn parse(input: &str) -> IResult<&str, QueryCmd> {
     top_level_parser(input)
