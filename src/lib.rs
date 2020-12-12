@@ -189,19 +189,58 @@ fn eval(json: Value, query: QueryCmd) -> Value {
     }
 }
 
-fn sum_json_nums(nums: &Vec<Value>) -> Value {
-    let res = nums.iter().fold(0.0, |acc, v| match v {
-        Value::Array(ns) => acc + sum_json_nums(ns).as_f64().unwrap(),
-        n if n.is_i64() => acc + n.as_i64().unwrap() as f64,
-        n if n.is_u64() => acc + n.as_u64().unwrap() as f64,
-        n if n.is_f64() => acc + n.as_f64().unwrap(),
+fn json_to_num(v: &Value) -> f64 {
+    match v {
+        n if n.is_i64() =>  n.as_i64().unwrap() as f64,
+        n if n.is_u64() =>  n.as_u64().unwrap() as f64,
+        n if n.is_f64() =>  n.as_f64().unwrap(),
         _ => panic!(
-            "Don't know how to Sum values that are not numbers! v={:?} is_f64={}",
+            "Don't know how to extract Numbers from non numeric Json Value! v={:?} is_f64={}",
             v,
             v.is_f64()
         ),
-    });
+    }
+}
+
+fn flatten_json_to_num_array(vs: &Vec<Value>) -> Vec<f64> {
+    let res: Vec<f64> =
+     vs.iter().flat_map(|v| match v {
+        Value::Array(vs) => vs.iter().map(|v| json_to_num(&v)).collect(),
+        _ => vec![json_to_num(&v)]
+
+    }).collect();
+    res
+}
+
+fn sum_json_nums(json_nums: &Vec<Value>) -> Value {
+    let res = flatten_json_to_num_array(&json_nums).iter().fold(0.0, |acc, n| acc + n);
     json!(res)
+}
+
+fn max_json_nums(nums : &Vec<Value>) -> Value {
+    let mut nums = flatten_json_to_num_array(&nums);
+    // note a, b flipped, so it's a DESC sort
+    nums.sort_by(|a, b| b.partial_cmp(a).unwrap());
+    json!(nums[0])   
+}
+
+fn min_json_nums(nums : &Vec<Value>) -> Value {
+    let mut nums = flatten_json_to_num_array(&nums);
+    nums.sort_by(|a, b| a.partial_cmp(b).unwrap());
+   json!(nums[0])
+}
+
+fn avg_json_nums(json_nums: &Vec<Value>) -> Value {
+    let nums = flatten_json_to_num_array(&json_nums);
+    let sum = nums.iter().fold(0.0, |acc, v| acc + v);
+    println!("sum = {}, len = {}, avg = {}", sum,  nums.len(), sum / (nums.len() as f64));
+    json!((sum / (nums.len() as f64)))
+}
+
+fn sort_json_nums(json_nums : &Vec<Value>) -> Value {
+    let mut nums = flatten_json_to_num_array(json_nums);
+    nums.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    json!(nums)
 }
 
 // Apparently you need to impl Fn trait https://stackoverflow.com/a/38947708
@@ -210,6 +249,10 @@ fn sum_json_nums(nums: &Vec<Value>) -> Value {
 fn function_registry_lookup(fn_name: &str, vs: Vec<Value>) -> Value {
     match fn_name {
         "sum" => sum_json_nums(&vs),
+        "max" => max_json_nums(&vs),
+        "min" => min_json_nums(&vs),
+        "avg" => avg_json_nums(&vs),
+        "sort" => sort_json_nums(&vs),
         _ => panic!(format!("Function {}! not supported yet!", fn_name)),
     }
 }
