@@ -63,7 +63,9 @@ named!(keyword_access(&str) -> QueryCmd, map!(ws!(call!(string_list)), |ks| Quer
 
 named!(int_list(&str) ->  Vec<usize>,  ws!(separated_list!(tag(","), map_res(digit1, |s: &str| s.parse::<usize>()))));
 
-named!(array_index_access(&str) -> QueryCmd, map!(ws!(tuple!(tag!("["), call!(int_list), tag!("]"))), |(_, ids, _)| QueryCmd::ArrayIndexAccess(ids)));
+named!(index_range(&str) -> Vec<usize>, map!(ws!(tuple!(digit1, tag!(".."), digit1)), |(from, _, to)|  (from.parse::<usize>().unwrap()..to.parse::<usize>().unwrap()).collect()));
+
+named!(array_index_access(&str) -> QueryCmd, map!(ws!(tuple!(tag!("["), alt!(complete!(index_range) | int_list), tag!("]"))), |(_, ids, _)| QueryCmd::ArrayIndexAccess(ids)));
 
 named!(prop_to_key(&str) -> (String, QueryCmd),  map!(ws!(tuple!(alpha_or_spec_char, tag!("="), top_level_parser)), |(prop_name,_, kw_access)| (prop_name.to_string(), kw_access)));
 
