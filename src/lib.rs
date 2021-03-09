@@ -6,7 +6,7 @@ use serde_json::map::Map;
 use serde_json::Value;
 use serde_json::Deserializer;
 use std::error::Error;
-use std::fs;
+use std::fs::File;
 use std::io::{self, Read, BufReader};
 mod parser;
 
@@ -68,21 +68,14 @@ fn parse_cmd(cmd_str: &String) -> Result<QueryCmd, &'static str> {
 }
 
 pub fn read_json_file(file: &String) -> Result<Value, Box<dyn Error>> {
-    let file_contents = &fs::read_to_string(file)?;
-    let json: Value = serde_json::from_str(file_contents)?;
+    let file = File::open(file)?;
+    let reader = BufReader::new(file);
+    let json: Value = serde_json::from_reader(reader)?;
 
     Ok(json)
 }
 
 fn read_json_from_stdin() -> Result<Value, Box<dyn Error>> {
-    // let mut buffer = String::new();
-
-    // let mut handle = stdin.lock();
-    // handle.read_to_string(&mut buffer)?;
-
-    // let json: Value = serde_json::from_str(&buffer)?;
-    // let reader = BufReader::new()
-
     let stdin = io::stdin();
     let json:Value = serde_json::from_reader(stdin.lock())?;
     Ok(json)
@@ -98,6 +91,7 @@ fn read_multi_json_from_stdin() -> Result<Value, Box<dyn Error>> {
     Ok(json!(json_array))
 
 }
+
 
 fn print_json(val: &Value) {
     if let Ok(s) = serde_json::to_string_pretty(val) {
