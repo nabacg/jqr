@@ -14,7 +14,7 @@ mod parser;
 pub struct CmdArgs {
     input_file: Option<String>,
     query: Option<String>,
-    flag: Option<String>
+    flag: Option<String> // this flag should be an enum actually!
 }
 
 impl CmdArgs {
@@ -367,18 +367,59 @@ fn eval_inner(json: Value, query: QueryCmd) {
     print_json(&res_json)
 }
 
+
+fn streaming_eval_from_io(query: QueryCmd) -> Result<(), Box<dyn Error>> {
+    let stdin = io::stdin();
+
+    let json_iter  = Deserializer::from_reader(stdin.lock())
+        .into_iter::<Value>();
+
+     match query {
+        QueryCmd::ArrayIndexAccess(idx) =>
+             json_iter.enumerate().filter(|(i, _)| idx.contains(&i) )
+             .take(idx.len()).map(|(i, jv)| print_json(&(jv.unwrap()))).collect(),
+        QueryCmd::MultiCmd(cmds) => {
+            match &cmds[0] {
+                QueryCmd::ArrayIndexAccess(idx) =>
+                    json_iter.enumerate().filter(|(i, _)| idx.contains(&i) )
+                    .take(idx.len())
+                    .map(|(i, jv)|
+                         eval_inner(jv.unwrap(), QueryCmd::MultiCmd(cmds[1..].to_vec())))
+                        .collect(),
+                _ => panic!("First command in multi json value streaming needs to array index access!"),
+            }
+        }
+        _ => panic!("First command in multi json value streaming needs to array index access!"),
+    }
+
+    Ok(())
+
+}
+
 pub fn eval_cmd(cmd: CmdArgs) -> Result<(), Box<dyn Error>> {
+    if let Some(f)  = cmd.flag {
+        println!("NU code");
+        match  cmd.query.map(|query| parse_cmd(&query)) {
+            Some(Ok(cmd))   => streaming_eval_from_io(cmd),
+            _ => Ok(()),
+        }
+
+
+    } else {
+
     let json: Value = match (&cmd.input_file, &cmd.flag) {
         (Some(input_path), None) => read_json_file(&input_path)?,
-        (Some(input_path), Some(flag)) => read_multi_json_from_file(&input_path)?,
-        (None, Some(flag)) => read_multi_json_from_stdin()?,
+        (Some(input_path), Some(flag)) if flag.as_str() == "-m" => read_multi_json_from_file(&input_path)?,
+        (None, Some(flag)) if flag.as_str() == "-m" => read_multi_json_from_stdin()?,
         (None, None) => read_json_from_stdin()?,
+        _ => panic!("Boom")
     };
 
-    match cmd.query.map(|query| parse_cmd(&query)) {
-        Some(Ok(cmd)) => eval_inner(json, cmd),
-        Some(Err(msg)) => println!("Failed at cmd parsing with error= {}", msg), // Seems like too many levels of error handling
-        None => print_json(&json),
+        match cmd.query.map(|query| parse_cmd(&query)) {
+            Some(Ok(cmd)) => eval_inner(json, cmd),
+            Some(Err(msg)) => println!("Failed at cmd parsing with error= {}", msg), // Seems like too many levels of error handling
+            None => print_json(&json),
     }
-    Ok(())
+        Ok(())
+    }
 }
