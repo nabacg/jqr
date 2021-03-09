@@ -4,31 +4,41 @@ use parser::QueryCmd;
 use serde_json::json;
 use serde_json::map::Map;
 use serde_json::Value;
+use serde_json::Deserializer;
 use std::error::Error;
 use std::fs;
-use std::io::{self, Read};
+use std::io::{self, Read, BufReader};
 mod parser;
 
 #[derive(Debug)]
 pub struct CmdArgs {
     input_file: Option<String>,
     query: Option<String>,
+    flag: Option<String>
 }
 
 impl CmdArgs {
     pub fn new(args: &[String]) -> Result<CmdArgs, String> {
         match args {
+            [_, opt, query] if opt.as_str() == "-m" => Ok(CmdArgs {
+                input_file: None,
+                query: Some(query.clone()),
+                flag: Some(opt.clone())
+            }),
             [_, input_file, query] => Ok(CmdArgs {
                 input_file: Some(input_file.clone()),
                 query: Some(query.clone()),
+                flag: None
             }),
             [_, query] => Ok(CmdArgs {
                 input_file: None,
                 query: Some(query.clone()),
+                flag: None
             }),
             [_] => Ok(CmdArgs {
                 input_file: None,
                 query: None,
+                flag: None
             }),
             _ => {
                 return Err(format!(
@@ -65,14 +75,28 @@ pub fn read_json_file(file: &String) -> Result<Value, Box<dyn Error>> {
 }
 
 fn read_json_from_stdin() -> Result<Value, Box<dyn Error>> {
-    let mut buffer = String::new();
+    // let mut buffer = String::new();
+
+    // let mut handle = stdin.lock();
+    // handle.read_to_string(&mut buffer)?;
+
+    // let json: Value = serde_json::from_str(&buffer)?;
+    // let reader = BufReader::new()
+
     let stdin = io::stdin();
-    let mut handle = stdin.lock();
-    handle.read_to_string(&mut buffer)?;
-
-    let json: Value = serde_json::from_str(&buffer)?;
-
+    let json:Value = serde_json::from_reader(stdin.lock())?;
     Ok(json)
+}
+
+fn read_multi_json_from_stdin() -> Result<Value, Box<dyn Error>> {
+
+    let stdin = io::stdin();
+    let json_array: Vec<Value>  = Deserializer::from_reader(stdin.lock())
+        .into_iter::<Value>()
+        .map(|v| v.unwrap())
+        .collect();
+    Ok(json!(json_array))
+
 }
 
 fn print_json(val: &Value) {
@@ -225,7 +249,7 @@ fn max_json_nums(json: Value, cmds: Vec<QueryCmd>) -> Value {
     let mut nums = flatten_json_to_num_array(json, cmds);
     // note a, b flipped, so it's a DESC sort
     nums.sort_by(|a, b| b.partial_cmp(a).unwrap());
-    json!(nums[0])   
+    json!(nums[0])
 }
 
 fn min_json_nums(json: Value, cmds: Vec<QueryCmd>) -> Value {
@@ -259,12 +283,12 @@ fn group_by_cmd(json:Value, cmds:Vec<QueryCmd>) -> Value {
 
     match value_to_group {
         Value::Array(values) => {
-            // extract a function here, similar code in eval branch   (json, QueryCmd::TransformIntoObject(prop_mapping)) 
-        
+            // extract a function here, similar code in eval branch   (json, QueryCmd::TransformIntoObject(prop_mapping))
+
           //  let mut group_dict: HashMap<String, >
 
             let mut props: Map<String, Value> = Map::new();
-            // there has to be a better way to do this, not only does the code look horrible 
+            // there has to be a better way to do this, not only does the code look horrible
             // but the performance seems to be really bad
             // below groupBy takes 60secs !!
             //  58.60s user 0.60s system 99% cpu 59.393 total
@@ -288,23 +312,23 @@ fn group_by_cmd(json:Value, cmds:Vec<QueryCmd>) -> Value {
 //   "618697",
 //   "817940"
 // ]
-// cargo run 004ff2c5-7ed0-433b-8638-e6ceeceb1d09-7  
+// cargo run 004ff2c5-7ed0-433b-8638-e6ceeceb1d09-7
             // maybe use HashMap and mutable Vectors as vals ? https://doc.rust-lang.org/rust-by-example/std/hash.html
             for json_val in values {
                 let group_key = eval(json_val.clone(), cmd_to_group_by.clone()); // Todo this cloning sucks! Can I do lifetimes to limit this?
                 let key_string = serde_json::to_string(&group_key).unwrap();
                 match props.get(&key_string) {
-                    Some(Value::Array(vs)) =>  { 
+                    Some(Value::Array(vs)) =>  {
 
                         let mut new_vec = vs.clone();
                         new_vec.push(json_val);
                         props.insert(key_string, json!(new_vec));
-                        
+
                         }
                     None => { props.insert(key_string, json!(vec![json_val])); }
                     v => panic!("Group by return value adding to previous group should always find a Vec<Value>, but found something else: {:?}", v)
                 }
-                
+
             }
             json!(props)
         }
@@ -313,8 +337,8 @@ fn group_by_cmd(json:Value, cmds:Vec<QueryCmd>) -> Value {
             let key_string = serde_json::to_string(&group_key).unwrap();
             json!({key_string: json_val})
 
-        }  
-               
+        }
+
     }
 }
 
@@ -340,9 +364,12 @@ fn eval_inner(json: Value, query: QueryCmd) {
 }
 
 pub fn eval_cmd(cmd: CmdArgs) -> Result<(), Box<dyn Error>> {
-    let json: Value = match &cmd.input_file {
-        Some(input_path) => read_json_file(&input_path)?,
-        None => read_json_from_stdin()?,
+    println!("eval_cmd: {:?}", cmd);
+    let json: Value = match (&cmd.input_file, &cmd.flag) {
+        (Some(input_path), None) => read_json_file(&input_path)?,
+        (Some(input_path), Some(flag)) => read_json_file(&input_path)?,
+        (None, Some(flag)) => read_multi_json_from_stdin()?,
+        (None, None) => read_json_from_stdin()?,
     };
 
     match cmd.query.map(|query| parse_cmd(&query)) {
