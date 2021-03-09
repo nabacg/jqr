@@ -92,6 +92,17 @@ fn read_multi_json_from_stdin() -> Result<Value, Box<dyn Error>> {
 
 }
 
+fn read_multi_json_from_file(file: &String) -> Result<Value, Box<dyn Error>> {
+    let file = File::open(file)?;
+    let reader = BufReader::new(file);
+
+    let json_array: Vec<Value>  = Deserializer::from_reader(reader)
+        .into_iter::<Value>()
+        .map(|v| v.unwrap())
+        .collect();
+    Ok(json!(json_array))
+
+}
 
 fn print_json(val: &Value) {
     if let Ok(s) = serde_json::to_string_pretty(val) {
@@ -352,16 +363,14 @@ fn function_registry_lookup(fn_name: &str, json: Value, cmds: Vec<QueryCmd>) -> 
 }
 
 fn eval_inner(json: Value, query: QueryCmd) {
-     println!("command found = {:?}", query);
     let res_json = eval(json, query);
     print_json(&res_json)
 }
 
 pub fn eval_cmd(cmd: CmdArgs) -> Result<(), Box<dyn Error>> {
-    println!("eval_cmd: {:?}", cmd);
     let json: Value = match (&cmd.input_file, &cmd.flag) {
         (Some(input_path), None) => read_json_file(&input_path)?,
-        (Some(input_path), Some(flag)) => read_json_file(&input_path)?,
+        (Some(input_path), Some(flag)) => read_multi_json_from_file(&input_path)?,
         (None, Some(flag)) => read_multi_json_from_stdin()?,
         (None, None) => read_json_from_stdin()?,
     };
