@@ -374,22 +374,24 @@ fn streaming_eval_from_io(query: QueryCmd) -> Result<(), Box<dyn Error>> {
     let json_iter  = Deserializer::from_reader(stdin.lock())
         .into_iter::<Value>();
 
-     match query {
+     match &query {
         QueryCmd::ArrayIndexAccess(idx) =>
              json_iter.enumerate().filter(|(i, _)| idx.contains(&i) )
              .take(idx.len()).map(|(i, jv)| print_json(&(jv.unwrap()))).collect(),
         QueryCmd::MultiCmd(cmds) => {
             match &cmds[0] {
                 QueryCmd::ArrayIndexAccess(idx) =>
-                    json_iter.enumerate().filter(|(i, _)| idx.contains(&i) )
+                    json_iter
+                    .enumerate()
+                    .filter(|(i, _)| idx.contains(&i) )
                     .take(idx.len())
                     .map(|(i, jv)|
                          eval_inner(jv.unwrap(), QueryCmd::MultiCmd(cmds[1..].to_vec())))
-                        .collect(),
-                _ => panic!("First command in multi json value streaming needs to array index access!"),
+                    .collect(),
+                query => json_iter.map(|jv| eval_inner(jv.unwrap(), query.clone())).collect(),
             }
-        }
-        _ => panic!("First command in multi json value streaming needs to array index access!"),
+        },
+        query => json_iter.map(|jv| eval_inner(jv.unwrap(), query.clone())).collect(),
     }
 
     Ok(())
