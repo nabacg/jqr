@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate nom;
 use parser::QueryCmd;
-use serde_json::json;
+use serde_json::{StreamDeserializer, json};
 use serde_json::map::Map;
 use serde_json::Value;
 use serde_json::Deserializer;
@@ -73,35 +73,6 @@ pub fn read_json_file(file: &String) -> Result<Value, Box<dyn Error>> {
     let json: Value = serde_json::from_reader(reader)?;
 
     Ok(json)
-}
-
-fn read_json_from_stdin() -> Result<Value, Box<dyn Error>> {
-    let stdin = io::stdin();
-    let json:Value = serde_json::from_reader(stdin.lock())?;
-    Ok(json)
-}
-
-fn read_multi_json_from_stdin() -> Result<Value, Box<dyn Error>> {
-
-    let stdin = io::stdin();
-    let json_array: Vec<Value>  = Deserializer::from_reader(stdin.lock())
-        .into_iter::<Value>()
-        .map(|v| v.unwrap())
-        .collect();
-    Ok(json!(json_array))
-
-}
-
-fn read_multi_json_from_file(file: &String) -> Result<Value, Box<dyn Error>> {
-    let file = File::open(file)?;
-    let reader = BufReader::new(file);
-
-    let json_array: Vec<Value>  = Deserializer::from_reader(reader)
-        .into_iter::<Value>()
-        .map(|v| v.unwrap())
-        .collect();
-    Ok(json!(json_array))
-
 }
 
 fn print_json(val: &Value) {
@@ -197,11 +168,11 @@ fn eval(json: Value, query: QueryCmd) -> Value {
 
                 let mut res: Vec<Value> = Vec::new();
                 for i in 0..shortest {
-                    let mut newProps: Map<String, Value> = Map::new();
+                    let mut new_props: Map<String, Value> = Map::new();
                     for j in 0..names.len() {
-                        newProps.insert(names[j].clone(), vals[j][i].clone());
+                        new_props.insert(names[j].clone(), vals[j][i].clone());
                     }
-                    res.push(Value::Object(newProps));
+                    res.push(Value::Object(new_props));
                 }
                 json!(res)
             } else {
@@ -214,6 +185,7 @@ fn eval(json: Value, query: QueryCmd) -> Value {
         (json, QueryCmd::MultiCmd(cmds)) => {
             let mut val = json;
             for cmd in cmds {
+                // println!("{:?}", cmd);
                 val = eval(val, cmd);
             }
             val
@@ -367,17 +339,14 @@ fn eval_inner(json: Value, query: QueryCmd) {
     print_json(&res_json)
 }
 
-
-fn streaming_eval_from_io(query: QueryCmd) -> Result<(), Box<dyn Error>> {
-    let stdin = io::stdin();
-
-    let json_iter  = Deserializer::from_reader(stdin.lock())
-        .into_iter::<Value>();
-
+fn streaming_eval<I: Read>(json_iter: StreamDeserializer<serde_json::de::IoRead<I>, Value>, query: QueryCmd) -> Result<(), Box<dyn Error>> {
      match &query {
         QueryCmd::ArrayIndexAccess(idx) =>
-             json_iter.enumerate().filter(|(i, _)| idx.contains(&i) )
-             .take(idx.len()).map(|(i, jv)| print_json(&(jv.unwrap()))).collect(),
+             json_iter
+             .enumerate()
+             .filter(|(i, _)| idx.contains(&i) )
+             .take(idx.len()).map(|(_, jv)| print_json(&(jv.unwrap())))
+             .collect(),
         QueryCmd::MultiCmd(cmds) => {
             match &cmds[0] {
                 QueryCmd::ArrayIndexAccess(idx) =>
@@ -385,13 +354,20 @@ fn streaming_eval_from_io(query: QueryCmd) -> Result<(), Box<dyn Error>> {
                     .enumerate()
                     .filter(|(i, _)| idx.contains(&i) )
                     .take(idx.len())
-                    .map(|(i, jv)|
+                    .map(|(_, jv)|
                          eval_inner(jv.unwrap(), QueryCmd::MultiCmd(cmds[1..].to_vec())))
                     .collect(),
-                query => json_iter.map(|jv| eval_inner(jv.unwrap(), query.clone())).collect(),
+                _ =>  {
+                    json_iter
+                        .map(|jv|
+                             eval_inner(jv.unwrap(), QueryCmd::MultiCmd(cmds.clone())))
+                        .collect()
+                } 
             }
         },
-        query => json_iter.map(|jv| eval_inner(jv.unwrap(), query.clone())).collect(),
+        query => {
+            json_iter.map(|jv| eval_inner(jv.unwrap(), query.clone())).collect()
+        }
     }
 
     Ok(())
@@ -399,29 +375,65 @@ fn streaming_eval_from_io(query: QueryCmd) -> Result<(), Box<dyn Error>> {
 }
 
 pub fn eval_cmd(cmd: CmdArgs) -> Result<(), Box<dyn Error>> {
-    if let Some(f)  = cmd.flag {
-        println!("NU code");
-        match  cmd.query.map(|query| parse_cmd(&query)) {
-            Some(Ok(cmd))   => streaming_eval_from_io(cmd),
-            _ => Ok(()),
+
+    match (&cmd.input_file, cmd.query.map(|query| parse_cmd(&query))) {
+        (_, Some(Err(msg))) => println!("Failed at cmd parsing with error= {}", msg),
+        (None, Some(Ok(cmd))) => {
+
+            let std_in = io::stdin();
+            //let reader = Box::new(std_in.lock()) as Box<BufRead>;
+            let rdr = std_in.lock();
+            let json_iter  = Deserializer::from_reader(rdr).into_iter::<Value>();
+            streaming_eval(json_iter, cmd)?;
+            ()
         }
+        (Some(input_file), Some(Ok(cmd))) => {
+            let file = File::open(input_file)?;
+            let json_iter  = Deserializer::from_reader(BufReader::new(file)).into_iter::<Value>();
 
-
-    } else {
-
-    let json: Value = match (&cmd.input_file, &cmd.flag) {
-        (Some(input_path), None) => read_json_file(&input_path)?,
-        (Some(input_path), Some(flag)) if flag.as_str() == "-m" => read_multi_json_from_file(&input_path)?,
-        (None, Some(flag)) if flag.as_str() == "-m" => read_multi_json_from_stdin()?,
-        (None, None) => read_json_from_stdin()?,
-        _ => panic!("Boom")
+            streaming_eval(json_iter, cmd)?;
+            ()
+        },
+        (None, None) => {
+            let stdin = io::stdin();
+            Deserializer::from_reader(stdin.lock()).into_iter::<Value>().map(|jv| print_json(&(jv.unwrap()))).for_each(drop);
+            ()
+        }
+        (Some(input_file), None) => {
+            let file = File::open(input_file)?;
+            Deserializer::from_reader(BufReader::new(file)).into_iter::<Value>().map(|jv| print_json(&(jv.unwrap()))).for_each(drop);
+            ()
+        }
+      
     };
 
-        match cmd.query.map(|query| parse_cmd(&query)) {
-            Some(Ok(cmd)) => eval_inner(json, cmd),
-            Some(Err(msg)) => println!("Failed at cmd parsing with error= {}", msg), // Seems like too many levels of error handling
-            None => print_json(&json),
-    }
-        Ok(())
-    }
+    // match  cmd.query.map(|query| parse_cmd(&query)) {
+    //     Some(Ok(cmd))   => streaming_eval_from_io(input_stream, cmd),
+    //     Some(Err(msg)) => println!("Failed at cmd parsing with error= {}", msg), // Seems like too many levels of error handling
+    //     None => Deserializer::from_reader(input_stream).into_iter::<Value>().map(|(i, jv)| print_json(&(jv.unwrap()))).collect(),
+    // }
+
+    Ok(())
+
+
+
+    // if let Some(f)  = cmd.flag {
+   //      println!("NU code");
+   // } else {
+
+   //  let json: Value = match (&cmd.input_file, &cmd.flag) {
+   //      (Some(input_path), None) => read_json_file(&input_path)?,
+   //      (Some(input_path), Some(flag)) if flag.as_str() == "-m" => read_multi_json_from_file(&input_path)?,
+   //      (None, Some(flag)) if flag.as_str() == "-m" => read_multi_json_from_stdin()?,
+   //      (None, None) => read_json_from_stdin()?,
+   //      _ => panic!("Boom")
+   //  };
+
+   //      match cmd.query.map(|query| parse_cmd(&query)) {
+   //          Some(Ok(cmd)) => eval_inner(json, cmd),
+   //          Some(Err(msg)) => println!("Failed at cmd parsing with error= {}", msg), // Seems like too many levels of error handling
+   //          None => print_json(&json),
+   //  }
+   //      Ok(())
+   //  }
 }
