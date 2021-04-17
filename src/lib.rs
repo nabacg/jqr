@@ -334,7 +334,7 @@ fn function_registry_lookup(fn_name: &str, json: Value, cmds: Vec<QueryCmd>) -> 
     }
 }
 
-fn eval_inner(json: Value, query: QueryCmd) {
+fn eval_outer(json: Value, query: QueryCmd) {
     let res_json = eval(json, query);
     print_json(&res_json)
 }
@@ -355,18 +355,18 @@ fn streaming_eval<I: Read>(json_iter: StreamDeserializer<serde_json::de::IoRead<
                     .filter(|(i, _)| idx.contains(&i) )
                     .take(idx.len())
                     .map(|(_, jv)|
-                         eval_inner(jv.unwrap(), QueryCmd::MultiCmd(cmds[1..].to_vec())))
+                         eval_outer(jv.unwrap(), QueryCmd::MultiCmd(cmds[1..].to_vec())))
                     .collect(),
                 _ =>  {
                     json_iter
                         .map(|jv|
-                             eval_inner(jv.unwrap(), QueryCmd::MultiCmd(cmds.clone())))
+                             eval_outer(jv.unwrap(), QueryCmd::MultiCmd(cmds.clone())))
                         .collect()
                 } 
             }
         },
         query => {
-            json_iter.map(|jv| eval_inner(jv.unwrap(), query.clone())).collect()
+            json_iter.map(|jv| eval_outer(jv.unwrap(), query.clone())).collect()
         }
     }
 
@@ -406,34 +406,5 @@ pub fn eval_cmd(cmd: CmdArgs) -> Result<(), Box<dyn Error>> {
         }
       
     };
-
-    // match  cmd.query.map(|query| parse_cmd(&query)) {
-    //     Some(Ok(cmd))   => streaming_eval_from_io(input_stream, cmd),
-    //     Some(Err(msg)) => println!("Failed at cmd parsing with error= {}", msg), // Seems like too many levels of error handling
-    //     None => Deserializer::from_reader(input_stream).into_iter::<Value>().map(|(i, jv)| print_json(&(jv.unwrap()))).collect(),
-    // }
-
     Ok(())
-
-
-
-    // if let Some(f)  = cmd.flag {
-   //      println!("NU code");
-   // } else {
-
-   //  let json: Value = match (&cmd.input_file, &cmd.flag) {
-   //      (Some(input_path), None) => read_json_file(&input_path)?,
-   //      (Some(input_path), Some(flag)) if flag.as_str() == "-m" => read_multi_json_from_file(&input_path)?,
-   //      (None, Some(flag)) if flag.as_str() == "-m" => read_multi_json_from_stdin()?,
-   //      (None, None) => read_json_from_stdin()?,
-   //      _ => panic!("Boom")
-   //  };
-
-   //      match cmd.query.map(|query| parse_cmd(&query)) {
-   //          Some(Ok(cmd)) => eval_inner(json, cmd),
-   //          Some(Err(msg)) => println!("Failed at cmd parsing with error= {}", msg), // Seems like too many levels of error handling
-   //          None => print_json(&json),
-   //  }
-   //      Ok(())
-   //  }
 }
