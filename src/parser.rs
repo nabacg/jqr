@@ -1,5 +1,4 @@
-use nom::branch::alt;
-use nom::character::complete::{alpha1, digit1};
+use nom::character::complete::digit1;
 use nom::error::ErrorKind;
 use nom::multi::separated_list;
 use nom::{
@@ -16,6 +15,7 @@ pub enum QueryCmd {
     MultiCmd(Vec<QueryCmd>),
     TransformIntoObject(Vec<(String, QueryCmd)>),
     FunCallCmd(String, Vec<QueryCmd>),
+    FilterCmd(Box<QueryCmd>, String),
     ListKeys,
     ListValues,
     Count
@@ -30,6 +30,7 @@ impl PartialEq for QueryCmd {
             (QueryCmd::ListKeys, QueryCmd::ListKeys) => true,
             (QueryCmd::ListValues, QueryCmd::ListValues) => true,
             (QueryCmd::Count, QueryCmd::Count) => true,
+            (QueryCmd::FilterCmd(c1, s1), QueryCmd::FilterCmd(c2, s2)) => c1 == c2 && s1 == s2,
             (QueryCmd::FunCallCmd(fn1, args1), QueryCmd::FunCallCmd(fn2, args2)) => fn1 == fn2 && args1 == args2,
             (QueryCmd::TransformIntoObject(x_ps), QueryCmd::TransformIntoObject(y_ps)) => {
                 x_ps == y_ps
@@ -69,6 +70,8 @@ named!(array_index_access(&str) -> QueryCmd, map!(ws!(tuple!(tag!("["), alt!(com
 
 named!(prop_to_key(&str) -> (String, QueryCmd),  map!(ws!(tuple!(alpha_or_spec_char, tag!("="), top_level_parser)), |(prop_name,_, kw_access)| (prop_name.to_string(), kw_access)));
 
+named!(filter_query(&str) -> QueryCmd,  map!(ws!(tuple!(alt!(array_index_access | complete!(funcall_cmd) | keyword_access), tag!("?="), alpha_or_spec_char)), |(filter_expr, _, filter_value)| QueryCmd::FilterCmd(Box::new(filter_expr), filter_value.to_string())));
+
 named!(props_to_keys(&str) -> Vec<(String, QueryCmd)>, ws!(separated_list!(tag!(";"), prop_to_key)));
 
 named!(into_object_prop_map(&str) -> QueryCmd, map!(ws!(tuple!(tag!("{"), props_to_keys, tag!("}"))), |(_, props, _)| QueryCmd::TransformIntoObject(props)));
@@ -76,7 +79,7 @@ named!(into_object_prop_map(&str) -> QueryCmd, map!(ws!(tuple!(tag!("{"), props_
 named!(funcall_cmd(&str) -> QueryCmd, map!(ws!(tuple!(alpha_or_spec_char, tag!("("), separated_list!(tag!(","), top_level_parser), tag!(")"))),
  |(fn_name, _, args, _)| QueryCmd::FunCallCmd(fn_name.to_string(), args) ));
 
-named!(single_cmd(&str) -> QueryCmd, alt!(into_object_prop_map | dot_funcall_cmd | array_index_access | complete!(funcall_cmd) | keyword_access ));
+named!(single_cmd(&str) -> QueryCmd, alt!( complete!(filter_query) | into_object_prop_map  | dot_funcall_cmd | array_index_access | complete!(funcall_cmd) | keyword_access ));
 
 fn single_top_level_cmd(s: &str) -> IResult<&str, QueryCmd> {
     // all_consuming - makes sure parser succeeds only if all input was consumed
@@ -84,7 +87,7 @@ fn single_top_level_cmd(s: &str) -> IResult<&str, QueryCmd> {
     all_consuming(single_cmd)(s)
 }
 
-named!(multi_cmd_list( &str) -> QueryCmd, 
+named!(multi_cmd_list( &str) -> QueryCmd,
     map!(ws!(separated_list!(tag("|"),  single_cmd)),
       |cmds| QueryCmd::MultiCmd(cmds)));
 
@@ -281,6 +284,22 @@ mod parser_tests {
     }
 
     #[test]
+    fn filter_query_test() {
+        assert_eq!(
+            parse("a ?= 23"),
+            Ok(("", QueryCmd::FilterCmd(Box::new(QueryCmd::KeywordAccess(vec!["a".to_string()])),
+                                        "23".to_string())))
+
+        );
+        assert_eq!(
+            parse("[0] ?= 23"),
+            Ok(("", QueryCmd::FilterCmd(Box::new(QueryCmd::ArrayIndexAccess(vec![0])),
+                                        "23".to_string())))
+
+        );
+    }
+
+    #[test]
     fn transform_into_object_test() {
         assert_eq!(
             prop_to_key(&"a = testA"),
@@ -307,7 +326,7 @@ mod parser_tests {
                     (
                         "b".to_string(),
                         QueryCmd::MultiCmd(vec![
-                            QueryCmd::KeywordAccess(vec!["propB".to_string()])])    
+                            QueryCmd::KeywordAccess(vec!["propB".to_string()])])
                     )
                 ]
             ))

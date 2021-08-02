@@ -1,5 +1,6 @@
 #[macro_use]
 extern crate nom;
+
 use parser::QueryCmd;
 use serde_json::{StreamDeserializer, json};
 use serde_json::map::Map;
@@ -8,6 +9,7 @@ use serde_json::Deserializer;
 use std::error::Error;
 use std::fs::File;
 use std::io::{self, Read, BufReader};
+use std::io::{Write};
 mod parser;
 
 #[derive(Debug)]
@@ -81,6 +83,18 @@ fn print_json(val: &Value) {
     } else {
         println!("{}", val.to_string());
     }
+}
+
+
+fn write_json(val: &Value) -> io::Result<()> {
+    let mut stdout = io::stdout();
+    if let Ok(s) = serde_json::to_string_pretty(val) {
+        writeln!(&mut stdout, "{}", s)?
+    } else {
+        writeln!(&mut stdout, "{}", val.to_string())?
+
+    }
+    Ok(())
 }
 
 fn eval_sub_cmds(val: &Value, arg_cmds: Vec<QueryCmd>) -> Vec<Value> {
@@ -178,6 +192,16 @@ fn eval(json: Value, query: QueryCmd) -> Value {
             } else {
                 Value::Object(props)
             }
+        }
+        (json, QueryCmd::FilterCmd(query, value)) => {
+            println!("Query inner filter={:?}", query);
+            let res = eval(json.clone(), *query);
+            if res == json!(value) {
+                json!(json)
+            } else {
+                json!("")
+            }
+
         }
         (json, QueryCmd::FunCallCmd(fun_name, arg_cmds)) => {
             function_registry_lookup(&fun_name, json, arg_cmds)
@@ -336,7 +360,7 @@ fn function_registry_lookup(fn_name: &str, json: Value, cmds: Vec<QueryCmd>) -> 
 
 fn eval_outer(json: Value, query: QueryCmd) {
     let res_json = eval(json, query);
-    print_json(&res_json)
+    write_json(&res_json);
 }
 
 fn streaming_eval<I: Read>(json_iter: StreamDeserializer<serde_json::de::IoRead<I>, Value>, query: QueryCmd) -> Result<(), Box<dyn Error>> {
@@ -362,9 +386,31 @@ fn streaming_eval<I: Read>(json_iter: StreamDeserializer<serde_json::de::IoRead<
                         .map(|jv|
                              eval_outer(jv.unwrap(), QueryCmd::MultiCmd(cmds.clone())))
                         .collect()
-                } 
+                }
             }
         },
+         QueryCmd::FilterCmd(cmd, val) => {
+             let json_val = json!(val);
+             let empty_json = json!("");
+
+             json_iter.map(|json|
+                           {
+                               println!("filter cmd={:?}", cmd);
+                             //  println!("json={:?}", json);
+                               let json2 = json.unwrap();
+                               let res = eval(json2.clone(), *cmd.clone());
+                               //println!("Filter res={:?}", res);
+                               if json_val == res {
+                                   json2
+                               } else {
+                                   empty_json.clone()
+                               }
+                           }
+             ).filter(|jv| *jv != empty_json.clone())
+              .map(|j| write_json(&j))
+              .for_each(drop)
+
+         }
         query => {
             json_iter.map(|jv| eval_outer(jv.unwrap(), query.clone())).collect()
         }
@@ -404,7 +450,7 @@ pub fn eval_cmd(cmd: CmdArgs) -> Result<(), Box<dyn Error>> {
             Deserializer::from_reader(BufReader::new(file)).into_iter::<Value>().map(|jv| print_json(&(jv.unwrap()))).for_each(drop);
             ()
         }
-      
+
     };
     Ok(())
 }
