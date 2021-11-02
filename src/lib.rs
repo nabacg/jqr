@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 #[macro_use]
 extern crate nom;
 
@@ -360,7 +361,13 @@ fn function_registry_lookup(fn_name: &str, json: Value, cmds: Vec<QueryCmd>) -> 
 
 fn eval_outer(json: Value, query: QueryCmd) {
     let res_json = eval(json, query);
-    write_json(&res_json);
+    let write_res = write_json(&res_json);
+    if let Ok(_res) =  write_res {
+
+    } else {
+        println!("write_json error{:?}", write_res)
+    }
+    
 }
 
 fn streaming_eval<I: Read>(json_iter: StreamDeserializer<serde_json::de::IoRead<I>, Value>, query: QueryCmd) -> Result<(), Box<dyn Error>> {
