@@ -1,0 +1,6 @@
+
+
+
+keywordExpr = { ( ASCII_ALPHANUMERIC | "." )+ }
+
+jqExpr = { keywordExpr }

@@ -1,6 +1,7 @@
 #![allow(deprecated)]
+extern crate pest;
 #[macro_use]
-extern crate nom;
+extern crate pest_derive;
 
 use parser::QueryCmd;
 use serde_json::{StreamDeserializer, json};
@@ -55,11 +56,11 @@ impl CmdArgs {
 
 fn parse_cmd(cmd_str: &String) -> Result<QueryCmd, &'static str> {
     match parser::parse(&cmd_str) {
-        Ok(("", cmd)) => {
+        Ok(cmd) => {
             //   println!("Cmd={:?}", cmd); // ToDo add a --Debug flag to print it out?
             Ok(cmd)
         }
-        Ok((_, cmd)) => {
+        Ok(cmd) => {
             //    println!("Cmd={:?} but found unconsumed input={}" , cmd, input_left);
             Ok(cmd)
         }
