@@ -1,6 +1,8 @@
 
 
 
-keywordExpr = { ( ASCII_ALPHANUMERIC | "." )+ }
+singleKeyword = { ASCII_ALPHANUMERIC+ }
 
-jqExpr = { keywordExpr }
+multiKeyword = { ( singleKeyword | "." )+ } 
+
+jqExpr = { multiKeyword }

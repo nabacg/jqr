@@ -41,11 +41,21 @@ impl PartialEq for QueryCmd {
 
 
 pub fn parse(input: &str) -> Result<QueryCmd, Box<dyn Error>> {
-    let mut parsed = JQRParser::parse(Rule::keywordExpr, input)?;
+    let mut parsed = JQRParser::parse(Rule::jqExpr, input)?;
     let parseRes = parsed.next().unwrap();
-    println!("parsed: {:?}", parseRes.as_str());
+    println!("parsed: {:?}, rule: {:?}", parseRes.as_str(), parseRes.as_rule());
 
 
 
-    Ok(QueryCmd::KeywordAccess(vec![parseRes.as_str().to_string()]))
+    let err: Box<dyn Error> = String::from("Empty top level parse result").into();
+    let expr = parseRes.into_inner().next().ok_or(err)?;
+
+    match expr.as_rule() {
+        Rule::multiKeyword =>  {
+            let kws: Vec<String> = expr.into_inner().map(|kw| kw.as_str().to_string()).collect();
+            println!("kws: {:?}", kws);
+            return Ok(QueryCmd::KeywordAccess(kws))
+        },
+        _ => unreachable!()
+    }
 }
