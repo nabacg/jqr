@@ -60,10 +60,6 @@ fn parse_cmd(cmd_str: &String) -> Result<QueryCmd, &'static str> {
             //   println!("Cmd={:?}", cmd); // ToDo add a --Debug flag to print it out?
             Ok(cmd)
         }
-        Ok(cmd) => {
-            //    println!("Cmd={:?} but found unconsumed input={}" , cmd, input_left);
-            Ok(cmd)
-        }
         Err(e) => {
             eprintln!("ERROR parsing cmd={:?} error={:?}", cmd_str, e);
             Err("Failing now")

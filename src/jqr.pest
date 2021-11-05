@@ -8,10 +8,16 @@ singleKeyword = { ASCII_ALPHANUMERIC+ }
 
 multiKeyword = { singleKeyword ~ ( "." ~ singleKeyword )* }
 
+stringContent = { ASCII_ALPHANUMERIC* }
+
+stringValue = { QUOTATION_MARK ~ stringContent  ~ QUOTATION_MARK }
+
+filterExpr = { multiKeyword ~ "=" ~ stringValue }
+
 valsExpr = { ".vals" }
 
 keysExpr = { ".keys" }
 
 countExpr = { ".count" }
 
-jqExpr = { valsExpr | keysExpr | countExpr |  indexAccess | multiKeyword  }
+jqExpr = { filterExpr | valsExpr | keysExpr | countExpr |  indexAccess | multiKeyword  }
