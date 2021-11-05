@@ -42,20 +42,49 @@ impl PartialEq for QueryCmd {
 
 pub fn parse(input: &str) -> Result<QueryCmd, Box<dyn Error>> {
     let mut parsed = JQRParser::parse(Rule::jqExpr, input)?;
-    let parseRes = parsed.next().unwrap();
-    println!("parsed: {:?}, rule: {:?}", parseRes.as_str(), parseRes.as_rule());
+    let parse_res = parsed.next().unwrap();
+
 
 
 
     let err: Box<dyn Error> = String::from("Empty top level parse result").into();
-    let expr = parseRes.into_inner().next().ok_or(err)?;
-
+    let expr = parse_res.into_inner().next().ok_or(err)?;
+    println!("parsed: {:?}, expr: {:?}, rule: {:?}", parsed, expr, expr.as_rule());
     match expr.as_rule() {
         Rule::multiKeyword =>  {
             let kws: Vec<String> = expr.into_inner().map(|kw| kw.as_str().to_string()).collect();
             println!("kws: {:?}", kws);
-            return Ok(QueryCmd::KeywordAccess(kws))
+            Ok(QueryCmd::KeywordAccess(kws))
         },
+        Rule::indexAccess => {
+            let idx: Vec<usize> = expr.into_inner().map(|kw| kw.as_str().parse::<usize>().unwrap()).collect();
+            Ok(QueryCmd::ArrayIndexAccess(idx))
+        }
+
         _ => unreachable!()
+    }
+}
+
+
+#[cfg(test)]
+mod parser_test {
+    use super::*;
+
+    #[test]
+    fn keyword_access_test() {
+        assert_eq!(parse("a").expect("Parse failed!"), QueryCmd::KeywordAccess(vec!["a".to_string()]));
+        assert_eq!(parse("a.b.c").expect("OK"),
+                   QueryCmd::KeywordAccess(vec!["a".to_string(), "b".to_string(), "c".to_string()]));
+
+        assert_eq!(parse("a.b.c").expect("OK"),
+                   QueryCmd::KeywordAccess(vec!["a".to_string(), "b".to_string(), "c".to_string()]));
+
+     //   assert_eq!(parse("a  .b .c").err().is_none(), false);
+
+        assert_eq!(parse("[0]").expect("Parse failed!"), QueryCmd::ArrayIndexAccess(vec![0]));
+        assert_eq!(parse("[]").err().is_some(), true);
+        assert_eq!(parse("[1,3, 5]").expect("Parse failed!"), QueryCmd::ArrayIndexAccess(vec![1,3,5]));
+
+        assert_eq!(parse("[1,3, ea]").err().is_some(), true);
     }
 }

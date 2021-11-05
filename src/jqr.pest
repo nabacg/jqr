@@ -1,8 +1,11 @@
+WHITESPACE = _{ " " }
 
+arrayIndex = { ASCII_DIGIT+ }
 
+indexAccess = { "[" ~ arrayIndex ~ ( "," ~ arrayIndex )* ~ "]" }
 
 singleKeyword = { ASCII_ALPHANUMERIC+ }
 
-multiKeyword = { ( singleKeyword | "." )+ } 
+multiKeyword = { singleKeyword ~ ( "." ~ singleKeyword )* } 
 
-jqExpr = { multiKeyword }
+jqExpr = {  indexAccess | multiKeyword  }
