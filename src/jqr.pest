@@ -6,6 +6,12 @@ indexAccess = { "[" ~ arrayIndex ~ ( "," ~ arrayIndex )* ~ "]" }
 
 singleKeyword = { ASCII_ALPHANUMERIC+ }
 
-multiKeyword = { singleKeyword ~ ( "." ~ singleKeyword )* } 
+multiKeyword = { singleKeyword ~ ( "." ~ singleKeyword )* }
 
-jqExpr = {  indexAccess | multiKeyword  }
+valsExpr = { ".vals" }
+
+keysExpr = { ".keys" }
+
+countExpr = { ".count" }
+
+jqExpr = { valsExpr | keysExpr | countExpr |  indexAccess | multiKeyword  }
