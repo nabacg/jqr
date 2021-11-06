@@ -82,17 +82,25 @@ fn parse_expr(expr: Pair<Rule>) -> Result<QueryCmd, Box<dyn Error>> {
             let cmds = expr.into_inner().map(|expr| parse_expr(expr).expect("parseMulti failed"));
             Ok(QueryCmd::MultiCmd(cmds.collect()))
         },
+          Rule::newObjExpr => {
+              let assignExprs = expr.into_inner().map(|e| {
+                  let mut args = e.into_inner();
+                  let propName = args.next().unwrap().as_str().to_string(); //todo handler errors better
+                  let propValue = parse_expr(args.next().unwrap()).unwrap();
+                  (propName, propValue)
+
+              });
+              Ok(QueryCmd::TransformIntoObject(assignExprs.collect()))
+          }
         _ => unreachable!()
       }
 }
 
 pub fn parse(input: &str) -> Result<QueryCmd, Box<dyn Error>> {
     let mut parsed = JQRParser::parse(Rule::jqExpr, input)?;
-    let parse_res = parsed.next().unwrap();
-
 
     let err: Box<dyn Error> = String::from("Empty top level parse result").into();
-    let expr = parse_res.into_inner().next().ok_or(err)?;
+    let expr = parsed.next().ok_or(err)?;
     println!("parsed: {:?}, expr: {:?}, rule: {:?}", parsed, expr, expr.as_rule());
     parse_expr(expr)
 }
@@ -137,13 +145,26 @@ mod parser_test {
         assert_eq!(run_parse("address = \"P Sherman 42 Wallaby Way\""), QueryCmd::FilterCmd(Box::new(
             QueryCmd::KeywordAccess(vec!("address".to_string()))),  "P Sherman 42 Wallaby Way".to_string()));
 
-        assert_eq!(run_parse("[230] | a.b"), QueryCmd::MultiCmd(vec![QueryCmd::ArrayIndexAccess(vec![230]),
-                                                                     QueryCmd::KeywordAccess(vec!["a".to_string(), "b".to_string()])]));
+        assert_eq!(run_parse("[230] | a.b"),
+                   QueryCmd::MultiCmd(vec![QueryCmd::ArrayIndexAccess(vec![230]),
+                                           QueryCmd::KeywordAccess(vec!["a".to_string(), "b".to_string()])]));
 
         assert_eq!(run_parse("[230] | a.b | .vals"),
                    QueryCmd::MultiCmd(vec![
                        QueryCmd::ArrayIndexAccess(vec![230]),
                        QueryCmd::KeywordAccess(vec!["a".to_string(), "b".to_string()]),
-                   QueryCmd::ListValues]));
+                       QueryCmd::ListValues]));
+
+        assert_eq!(run_parse("{ a := xyz; b := testExpr.Abc }"),
+                   QueryCmd::TransformIntoObject(vec![
+                       (
+                           "a".to_string(),
+                           QueryCmd::KeywordAccess(vec!["xyz".to_string()])
+                       ),
+                       (
+                           "b".to_string(),
+                           QueryCmd::KeywordAccess(vec!["testExpr".to_string(), "Abc".to_string()])
+                       )
+                   ]));
     }
 }

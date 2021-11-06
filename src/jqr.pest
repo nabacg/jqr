@@ -12,6 +12,10 @@ stringContent = { ASCII_ALPHANUMERIC* }
 
 stringValue = { QUOTATION_MARK ~ stringContent  ~ QUOTATION_MARK }
 
+assignProp = { singleKeyword ~ ":=" ~  jqExpr }
+
+newObjExpr = { "{" ~ assignProp ~ ( ";" ~ assignProp)* ~ "}" }
+
 queryExpr = _{ indexAccess | keysExpr  | valsExpr | countExpr | multiKeyword }
 
 filterExpr = { queryExpr ~ "=" ~ stringValue }
@@ -22,6 +26,6 @@ keysExpr = { ".keys" }
 
 countExpr = { ".count" }
 
-multiExpr = { ( filterExpr | queryExpr )  ~ ( "|" ~  (filterExpr | queryExpr) )+ }
+multiExpr = { ( filterExpr | queryExpr | newObjExpr )  ~ ( "|" ~  (filterExpr | queryExpr | newObjExpr) )+ }
 
-jqExpr = { multiExpr | filterExpr | queryExpr  }
+jqExpr = _{ multiExpr | filterExpr | newObjExpr | queryExpr  }
