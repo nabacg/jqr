@@ -1,5 +1,4 @@
 use pest::iterators::Pair;
-use pest::iterators::Pairs;
 use std::error::Error;
 use pest::Parser;
 
@@ -83,14 +82,14 @@ fn parse_expr(expr: Pair<Rule>) -> Result<QueryCmd, Box<dyn Error>> {
             Ok(QueryCmd::MultiCmd(cmds.collect()))
         },
           Rule::newObjExpr => {
-              let assignExprs = expr.into_inner().map(|e| {
+              let properties = expr.into_inner().map(|e| {
                   let mut args = e.into_inner();
-                  let propName = args.next().unwrap().as_str().to_string(); //todo handler errors better
-                  let propValue = parse_expr(args.next().unwrap()).unwrap();
-                  (propName, propValue)
+                  let prop_name = args.next().unwrap().as_str().to_string(); //todo handler errors better
+                  let prop_value = parse_expr(args.next().unwrap()).unwrap();
+                  (prop_name, prop_value)
 
               });
-              Ok(QueryCmd::TransformIntoObject(assignExprs.collect()))
+              Ok(QueryCmd::TransformIntoObject(properties.collect()))
           }
         _ => unreachable!()
       }
