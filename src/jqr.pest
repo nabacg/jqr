@@ -1,10 +1,10 @@
 WHITESPACE = _{ " " }
 
-arrayIndex = { ASCII_DIGIT+ }
+arrayIndex = @{ ASCII_DIGIT+ }
 
 indexAccess = { "[" ~ arrayIndex ~ ( "," ~ arrayIndex )* ~ "]" }
 
-singleKeyword = { ASCII_ALPHANUMERIC+ }
+singleKeyword = @{ ASCII_ALPHANUMERIC+ }
 
 multiKeyword = { singleKeyword ~ ( "." ~ singleKeyword )* }
 
@@ -12,7 +12,9 @@ stringContent = { ASCII_ALPHANUMERIC* }
 
 stringValue = { QUOTATION_MARK ~ stringContent  ~ QUOTATION_MARK }
 
-filterExpr = { multiKeyword ~ "=" ~ stringValue }
+queryExpr = _{ indexAccess | keysExpr  | valsExpr | countExpr | multiKeyword }
+
+filterExpr = { queryExpr ~ "=" ~ stringValue }
 
 valsExpr = { ".vals" }
 
@@ -20,4 +22,6 @@ keysExpr = { ".keys" }
 
 countExpr = { ".count" }
 
-jqExpr = { filterExpr | valsExpr | keysExpr | countExpr |  indexAccess | multiKeyword  }
+multiExpr = { ( filterExpr | queryExpr )  ~ ( "|" ~  (filterExpr | queryExpr) )+ }
+
+jqExpr = { multiExpr | filterExpr | queryExpr  }
