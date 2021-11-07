@@ -8,7 +8,7 @@ singleKeyword = @{ ASCII_ALPHANUMERIC+ }
 
 multiKeyword = { singleKeyword ~ ( "." ~ singleKeyword )* }
 
-stringContent = { ASCII_ALPHANUMERIC* }
+stringContent = { (ASCII_ALPHANUMERIC | "-" | ":"  )* }
 
 stringValue = { QUOTATION_MARK ~ stringContent  ~ QUOTATION_MARK }
 

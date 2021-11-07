@@ -38,15 +38,22 @@ impl PartialEq for QueryCmd {
     }
 }
 
+impl QueryCmd {
+    fn keyword_access(kws: &[&str]) -> QueryCmd {
+        QueryCmd::KeywordAccess(kws.iter().map(|k| k.to_string()).collect())
+    }
+}
+
 // fn next_res<T>(op: Pair<T>) -> Result<T, Box<dyn Error>> {
 //     let err: Box<dyn Error> = String::from("Empty top level parse result").into();
 //     op.next().ok_or(err)
 // }
 
-fn parse_keyword(expr: Pair<Rule>) -> Result<QueryCmd, Box<dyn Error>>{
-    let kws: Vec<String> = expr.into_inner().map(|kw| kw.as_str().to_string()).collect();
+fn parse_keyword(expr: Pair<Rule>) -> Result<QueryCmd, Box<dyn Error>> {
+
+    let kws: Vec<_> = expr.into_inner().map(|kw| kw.as_str()).collect();
     println!("kws: {:?}", kws);
-    Ok(QueryCmd::KeywordAccess(kws))
+    Ok(QueryCmd::keyword_access(&kws))
 }
 
 fn parse_err(msg: &str) -> Box<dyn Error> {
@@ -117,11 +124,8 @@ mod parser_test {
     #[test]
     fn parse_test() {
         assert_eq!(run_parse("a"), QueryCmd::KeywordAccess(vec!["a".to_string()]));
-        assert_eq!(run_parse("a.b.c"),
-                   QueryCmd::KeywordAccess(vec!["a".to_string(), "b".to_string(), "c".to_string()]));
+        assert_eq!(run_parse("a.b.c"), QueryCmd::keyword_access(&["a", "b", "c"]));
 
-        assert_eq!(run_parse("a.b.c"),
-                   QueryCmd::KeywordAccess(vec!["a".to_string(), "b".to_string(), "c".to_string()]));
 
         //assert_eq!(parse("a  .b .c").err().is_some(), true);
         assert_eq!(run_parse("a .b   .c"),
@@ -139,31 +143,46 @@ mod parser_test {
         assert_eq!(run_parse(".count"), QueryCmd::Count);
 
         assert_eq!(run_parse("username = \"Adam\""), QueryCmd::FilterCmd(Box::new(
-            QueryCmd::KeywordAccess(vec!("username".to_string()))),  "Adam".to_string()));
+            QueryCmd::keyword_access(&["username"])),  "Adam".to_string()));
 
         assert_eq!(run_parse("address = \"P Sherman 42 Wallaby Way\""), QueryCmd::FilterCmd(Box::new(
-            QueryCmd::KeywordAccess(vec!("address".to_string()))),  "P Sherman 42 Wallaby Way".to_string()));
+            QueryCmd::keyword_access(&["address"])),  "P Sherman 42 Wallaby Way".to_string()));
 
         assert_eq!(run_parse("[230] | a.b"),
                    QueryCmd::MultiCmd(vec![QueryCmd::ArrayIndexAccess(vec![230]),
-                                           QueryCmd::KeywordAccess(vec!["a".to_string(), "b".to_string()])]));
+                                           QueryCmd::keyword_access(&["a", "b"])]));
 
         assert_eq!(run_parse("[230] | a.b | .vals"),
                    QueryCmd::MultiCmd(vec![
                        QueryCmd::ArrayIndexAccess(vec![230]),
-                       QueryCmd::KeywordAccess(vec!["a".to_string(), "b".to_string()]),
+                       QueryCmd::keyword_access(&["a", "b"]),
                        QueryCmd::ListValues]));
 
         assert_eq!(run_parse("{ a := xyz; b := testExpr.Abc }"),
                    QueryCmd::TransformIntoObject(vec![
                        (
                            "a".to_string(),
-                           QueryCmd::KeywordAccess(vec!["xyz".to_string()])
+                           QueryCmd::keyword_access(&["xyz"])
                        ),
                        (
                            "b".to_string(),
-                           QueryCmd::KeywordAccess(vec!["testExpr".to_string(), "Abc".to_string()])
+                           QueryCmd::keyword_access(&["testExpr", "Abc"])
                        )
                    ]));
+
+        assert_eq!(run_parse("Records | [0] | Details | [0]  | LastDate = \"2020-04-24T00:00:00Z\""),
+                   QueryCmd::MultiCmd(vec![
+                       QueryCmd::keyword_access(&["Records"]),
+                       QueryCmd::ArrayIndexAccess(vec![0]),
+                       QueryCmd::keyword_access(&["Details"]),
+                       QueryCmd::ArrayIndexAccess(vec![0]),
+                       QueryCmd::FilterCmd(Box::new(QueryCmd::keyword_access(&["LastDate"])),
+                                           "2020-04-24T00:00:00Z".to_string())
+                   ]));
+
+        assert_eq!(run_parse("LastDate = \"2020\""),
+                   QueryCmd::FilterCmd(Box::new(QueryCmd::keyword_access(&["LastDate"])),
+                                       "2020".to_string()));
+
     }
 }
