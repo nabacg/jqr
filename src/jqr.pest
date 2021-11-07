@@ -10,7 +10,7 @@ multiKeyword = { singleKeyword ~ ( "." ~ singleKeyword )* }
 
 stringContent = { (ASCII_ALPHANUMERIC | "-" | ":"  )* }
 
-stringValue = { QUOTATION_MARK ~ stringContent  ~ QUOTATION_MARK }
+stringValue = _{ QUOTATION_MARK ~ stringContent  ~ QUOTATION_MARK }
 
 assignProp = { singleKeyword ~ ":=" ~  jqExpr }
 
@@ -18,7 +18,11 @@ newObjExpr = { "{" ~ assignProp ~ ( ";" ~ assignProp)* ~ "}" }
 
 queryExpr = _{ indexAccess | keysExpr  | valsExpr | countExpr | multiKeyword }
 
-filterExpr = { queryExpr ~ "=" ~ stringValue }
+numericValue = { ASCII_DIGIT+ }
+
+filterValue = _{ stringValue | numericValue }
+
+filterExpr = { queryExpr ~ "=" ~ filterValue }
 
 valsExpr = { ".vals" }
 

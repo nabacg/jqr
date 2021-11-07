@@ -76,10 +76,8 @@ fn parse_expr(expr: Pair<Rule>) -> Result<QueryCmd, Box<dyn Error>> {
             let mut expr = expr.into_inner();
             let query_expr = expr.next().ok_or(parse_err("filterExpr - invalid queryExpr"))?;
             let val_expr   = expr.next().ok_or(parse_err("filterExpr - invalid valueExpr"))?;
-            let unquoted_val = val_expr.into_inner().next().ok_or(parse_err("valueExpr - expected quoted value"))?;
-
-
-            Ok(QueryCmd::FilterCmd(Box::new(parse_keyword(query_expr)?), unquoted_val.as_str().to_string()))
+ 
+            Ok(QueryCmd::FilterCmd(Box::new(parse_keyword(query_expr)?), val_expr.as_str().to_string()))
 
         },
         Rule::multiExpr => {
@@ -183,6 +181,11 @@ mod parser_test {
         assert_eq!(run_parse("LastDate = \"2020\""),
                    QueryCmd::FilterCmd(Box::new(QueryCmd::keyword_access(&["LastDate"])),
                                        "2020".to_string()));
+
+        assert_eq!(run_parse("Clicks = 7"),
+                   QueryCmd::FilterCmd(Box::new(QueryCmd::keyword_access(&["Clicks"])),
+                                       "7".to_string()));
+
 
     }
 }

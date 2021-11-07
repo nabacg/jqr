@@ -3,6 +3,7 @@ extern crate pest;
 #[macro_use]
 extern crate pest_derive;
 
+use serde_json::Value::Number;
 use parser::QueryCmd;
 use serde_json::{StreamDeserializer, json};
 use serde_json::map::Map;
@@ -182,12 +183,15 @@ fn eval(json: Value, query: QueryCmd) -> Value {
             }
         }
         (json, QueryCmd::FilterCmd(query, value)) => {
-            println!("Query inner filter={:?}", query);
+            let query_dbg = query.clone();
             let res = eval(json.clone(), *query);
-            if res == json!(value) {
-                json!(json)
-            } else {
-                json!("")
+            println!("Query inner filter={:?}, value={:?}, res={:?}", query_dbg, json!(value), &res );
+            //TODO we should really cover all json types here properly
+            match res {
+                Number(n) if  n == value.parse().unwrap() => json!(json),
+                serde_json::Value::String(s) if s == value => json!(json),
+                _ => json!("")
+
             }
 
         }
@@ -210,7 +214,7 @@ fn eval_outer(json: Value, query: QueryCmd) {
     } else {
         println!("write_json error{:?}", write_res)
     }
-    
+
 }
 
 fn streaming_eval<I: Read>(json_iter: StreamDeserializer<serde_json::de::IoRead<I>, Value>, query: QueryCmd) -> Result<(), Box<dyn Error>> {
