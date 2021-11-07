@@ -29,7 +29,7 @@ impl PartialEq for QueryCmd {
             (QueryCmd::ListKeys, QueryCmd::ListKeys) => true,
             (QueryCmd::ListValues, QueryCmd::ListValues) => true,
             (QueryCmd::Count, QueryCmd::Count) => true,
-            (QueryCmd::FilterCmd(c1, s1), QueryCmd::FilterCmd(c2, s2)) => c1 == c2 && s1 == s2,            
+            (QueryCmd::FilterCmd(c1, s1), QueryCmd::FilterCmd(c2, s2)) => c1 == c2 && s1 == s2,
             (QueryCmd::TransformIntoObject(x_ps), QueryCmd::TransformIntoObject(y_ps)) => {
                 x_ps == y_ps
             }
@@ -98,8 +98,10 @@ pub fn parse(input: &str) -> Result<QueryCmd, Box<dyn Error>> {
 
     let err: Box<dyn Error> = String::from("Empty top level parse result").into();
     let expr = parsed.next().ok_or(err)?;
-    println!("parsed: {:?}, expr: {:?}, rule: {:?}", parsed, expr, expr.as_rule());
-    parse_expr(expr)
+    println!("parsed: {:?}\n, expr: {:?}\n, rule: {:?}", parsed, expr, expr.as_rule());
+    let cmd = parse_expr(expr);
+    println!("QueryCmd: {:?}", cmd);
+    cmd
 }
 
 
