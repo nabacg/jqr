@@ -14,7 +14,6 @@ pub enum QueryCmd {
     KeywordAccess(Vec<String>),
     MultiCmd(Vec<QueryCmd>),
     TransformIntoObject(Vec<(String, QueryCmd)>),
-    FunCallCmd(String, Vec<QueryCmd>),
     FilterCmd(Box<QueryCmd>, String),
     ListKeys,
     ListValues,
@@ -30,8 +29,7 @@ impl PartialEq for QueryCmd {
             (QueryCmd::ListKeys, QueryCmd::ListKeys) => true,
             (QueryCmd::ListValues, QueryCmd::ListValues) => true,
             (QueryCmd::Count, QueryCmd::Count) => true,
-            (QueryCmd::FilterCmd(c1, s1), QueryCmd::FilterCmd(c2, s2)) => c1 == c2 && s1 == s2,
-            (QueryCmd::FunCallCmd(fn1, args1), QueryCmd::FunCallCmd(fn2, args2)) => fn1 == fn2 && args1 == args2,
+            (QueryCmd::FilterCmd(c1, s1), QueryCmd::FilterCmd(c2, s2)) => c1 == c2 && s1 == s2,            
             (QueryCmd::TransformIntoObject(x_ps), QueryCmd::TransformIntoObject(y_ps)) => {
                 x_ps == y_ps
             }
