@@ -14,7 +14,7 @@ pub enum QueryCmd {
     KeywordAccess(Vec<String>),
     MultiCmd(Vec<QueryCmd>),
     TransformIntoObject(Vec<(String, QueryCmd)>),
-    FilterCmd(Box<QueryCmd>, String),
+    FilterCmd(Box<QueryCmd>, String, String),
     ListKeys,
     ListValues,
     Count
@@ -29,7 +29,7 @@ impl PartialEq for QueryCmd {
             (QueryCmd::ListKeys, QueryCmd::ListKeys) => true,
             (QueryCmd::ListValues, QueryCmd::ListValues) => true,
             (QueryCmd::Count, QueryCmd::Count) => true,
-            (QueryCmd::FilterCmd(c1, s1), QueryCmd::FilterCmd(c2, s2)) => c1 == c2 && s1 == s2,
+            (QueryCmd::FilterCmd(c1, op1, v1), QueryCmd::FilterCmd(c2, op2, v2)) => c1 == c2 && op1 == op2 && v1 == v2,
             (QueryCmd::TransformIntoObject(x_ps), QueryCmd::TransformIntoObject(y_ps)) => {
                 x_ps == y_ps
             }
@@ -75,9 +75,12 @@ fn parse_expr(expr: Pair<Rule>) -> Result<QueryCmd, Box<dyn Error>> {
         Rule::filterExpr => {
             let mut expr = expr.into_inner();
             let query_expr = expr.next().ok_or(parse_err("filterExpr - invalid queryExpr"))?;
+            let op_expr    = expr.next().ok_or(parse_err("filterExpr - invalid operatorExpr"))?;
             let val_expr   = expr.next().ok_or(parse_err("filterExpr - invalid valueExpr"))?;
  
-            Ok(QueryCmd::FilterCmd(Box::new(parse_keyword(query_expr)?), val_expr.as_str().to_string()))
+            Ok(QueryCmd::FilterCmd(Box::new(parse_keyword(query_expr)?),
+                                   op_expr.as_str().to_string(),
+                                   val_expr.as_str().to_string()))
 
         },
         Rule::multiExpr => {
@@ -141,10 +144,11 @@ mod parser_test {
         assert_eq!(run_parse(".count"), QueryCmd::Count);
 
         assert_eq!(run_parse("username = \"Adam\""), QueryCmd::FilterCmd(Box::new(
-            QueryCmd::keyword_access(&["username"])),  "Adam".to_string()));
+            QueryCmd::keyword_access(&["username"])), "=".to_string(),  "Adam".to_string()));
 
         assert_eq!(run_parse("address = \"P Sherman 42 Wallaby Way\""), QueryCmd::FilterCmd(Box::new(
-            QueryCmd::keyword_access(&["address"])),  "P Sherman 42 Wallaby Way".to_string()));
+            QueryCmd::keyword_access(&["address"])), "=".to_string(), "P Sherman 42 Wallaby Way".to_string()));
+        
 
         assert_eq!(run_parse("[230] | a.b"),
                    QueryCmd::MultiCmd(vec![QueryCmd::ArrayIndexAccess(vec![230]),
@@ -175,16 +179,30 @@ mod parser_test {
                        QueryCmd::keyword_access(&["Details"]),
                        QueryCmd::ArrayIndexAccess(vec![0]),
                        QueryCmd::FilterCmd(Box::new(QueryCmd::keyword_access(&["LastDate"])),
+                                           "=".to_string(),
                                            "2020-04-24T00:00:00Z".to_string())
                    ]));
 
         assert_eq!(run_parse("LastDate = \"2020\""),
                    QueryCmd::FilterCmd(Box::new(QueryCmd::keyword_access(&["LastDate"])),
+                                       "=".to_string(),
                                        "2020".to_string()));
 
         assert_eq!(run_parse("Clicks = 7"),
                    QueryCmd::FilterCmd(Box::new(QueryCmd::keyword_access(&["Clicks"])),
+                                       "=".to_string(),
                                        "7".to_string()));
+
+        assert_eq!(run_parse("Clicks > 0"),
+                   QueryCmd::FilterCmd(Box::new(QueryCmd::keyword_access(&["Clicks"])),
+                                       ">".to_string(),
+                                       "0".to_string()));
+
+        assert_eq!(run_parse("CTR < 0.1"),
+                   QueryCmd::FilterCmd(Box::new(QueryCmd::keyword_access(&["CTR"])),
+                                       ">".to_string(),
+                                       "0.1".to_string()));
+        
 
 
     }

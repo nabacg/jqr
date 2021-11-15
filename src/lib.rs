@@ -182,13 +182,29 @@ fn eval(json: Value, query: QueryCmd) -> Value {
                 Value::Object(props)
             }
         }
-        (json, QueryCmd::FilterCmd(query, value)) => {
+        (Value::Array(vs), cmd @ QueryCmd::FilterCmd(_, _, _ )) => {
+            let mut res: Vec<Value> = Vec::new();
+            for v in vs {
+                let r = eval(v, cmd.clone()); // ToDo this needs fixing this cloning
+                if r != json!("") {
+                    res.push(r);
+                }
+
+            }
+            json!(res)
+        }
+        (json, QueryCmd::FilterCmd(query, op, value)) => {
             let query_dbg = query.clone();
             let res = eval(json.clone(), *query);
-            println!("Query inner filter={:?}, value={:?}, res={:?}", query_dbg, json!(value), &res );
+          //  println!("Query inner filter={:?}, value={:?}, res={:?}", query_dbg, json!(value), &res );
             //TODO we should really cover all json types here properly
             match res {
-                Number(n) if  n == value.parse().unwrap() => json!(json),
+                Number(n) if op == "=" &&  n == value.parse().unwrap() => json!(json),
+                // TODO seems like a classic case of multiple dispatch, extract into separate function, maybe in a trait?
+                Number(n) if op == ">" &&  n.is_i64() && n.as_i64().unwrap() > value.parse().unwrap() => json!(json),
+                Number(n) if op == ">" &&  n.is_f64() && n.as_f64().unwrap() > value.parse().unwrap() => json!(json),
+                Number(n) if op == "<" &&  n.is_i64() && n.as_i64().unwrap() < value.parse().unwrap() => json!(json),
+                Number(n) if op == "<" &&  n.is_f64() && n.as_f64().unwrap() < value.parse().unwrap() => json!(json),
                 serde_json::Value::String(s) if s == value => json!(json),
                 _ => json!("")
 
@@ -235,6 +251,23 @@ fn streaming_eval<I: Read>(json_iter: StreamDeserializer<serde_json::de::IoRead<
                     .map(|(_, jv)|
                          eval_outer(jv.unwrap(), QueryCmd::MultiCmd(cmds[1..].to_vec())))
                     .collect(),
+                // QueryCmd::FilterCmd(cmd, op, value) =>
+                //                                 println!("filter cmd={:?}", cmd);
+                //              //  println!("json={:?}", json);
+                //                let json2 = json.unwrap();
+                //                let res = eval(json2.clone(), *cmd.clone());
+                //                //println!("Filter res={:?}", res);
+                //                match res {
+                //                    Number(n) if op == "=" &&  n == value.parse().unwrap() => json2,
+                //                    // TODO seems like a classic case of multiple dispatch, extract into separate function, maybe in a trait?
+                //                    Number(n) if op == ">" &&  n.is_i64() && n.as_i64().unwrap() > value.parse().unwrap() => json2,
+                //                    Number(n) if op == ">" &&  n.is_f64() && n.as_f64().unwrap() > value.parse().unwrap() => json2,
+                //                    Number(n) if op == "<" &&  n.is_i64() && n.as_i64().unwrap() < value.parse().unwrap() => json2,
+                //                    Number(n) if op == "<" &&  n.is_f64() && n.as_f64().unwrap() < value.parse().unwrap() => json2,
+                //                    serde_json::Value::String(s) if s == *value => json2,
+                //                    _ => empty_json.clone()
+
+                //                }
                 _ =>  {
                     json_iter
                         .map(|jv|
@@ -243,27 +276,38 @@ fn streaming_eval<I: Read>(json_iter: StreamDeserializer<serde_json::de::IoRead<
                 }
             }
         },
-         QueryCmd::FilterCmd(cmd, val) => {
-             let json_val = json!(val);
+         QueryCmd::FilterCmd(cmd, op, value) => {
+            // let json_val = json!(value);
              let empty_json = json!("");
 
              json_iter.map(|json|
                            {
-                               println!("filter cmd={:?}", cmd);
+                               println!("filter cmd={:?}, json={:?}", cmd, json);
                              //  println!("json={:?}", json);
                                let json2 = json.unwrap();
                                let res = eval(json2.clone(), *cmd.clone());
                                //println!("Filter res={:?}", res);
-                               if json_val == res {
-                                   json2
-                               } else {
-                                   empty_json.clone()
+                               match res {
+                                   Number(n) if op == "=" &&  n == value.parse().unwrap() => json2,
+                                   // TODO seems like a classic case of multiple dispatch, extract into separate function, maybe in a trait?
+                                   Number(n) if op == ">" &&  n.is_i64() && n.as_i64().unwrap() > value.parse().unwrap() => json2,
+                                   Number(n) if op == ">" &&  n.is_f64() && n.as_f64().unwrap() > value.parse().unwrap() => json2,
+                                   Number(n) if op == "<" &&  n.is_i64() && n.as_i64().unwrap() < value.parse().unwrap() => json2,
+                                   Number(n) if op == "<" &&  n.is_f64() && n.as_f64().unwrap() < value.parse().unwrap() => json2,
+                                   serde_json::Value::String(s) if s == *value => json2,
+                                   _ => empty_json.clone()
+
                                }
+                               // if json_val == res {
+                               //     json2
+                               // } else {
+                               //     empty_json.clone()
+                               // }
+
                            }
              ).filter(|jv| *jv != empty_json.clone())
               .map(|j| write_json(&j))
               .for_each(drop)
-
          }
         query => {
             json_iter.map(|jv| eval_outer(jv.unwrap(), query.clone())).collect()

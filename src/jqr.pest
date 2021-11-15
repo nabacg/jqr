@@ -18,11 +18,15 @@ newObjExpr = { "{" ~ assignProp ~ ( ";" ~ assignProp)* ~ "}" }
 
 queryExpr = _{ indexAccess | keysExpr  | valsExpr | countExpr | multiKeyword }
 
-numericValue = @{ ASCII_DIGIT+ }
+integerValue = @{ ASCII_DIGIT+ }
 
-filterValue = _{ stringValue | numericValue }
+floatValue = @{ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ }
 
-filterExpr = { queryExpr ~ "=" ~ filterValue }
+filterValue = _{ stringValue | floatValue | integerValue }
+
+filterOp = { "=" | ">"  | "<" }
+
+filterExpr = { queryExpr ~ filterOp ~ filterValue }
 
 valsExpr = { ".vals" }
 
