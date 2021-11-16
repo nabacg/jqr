@@ -52,7 +52,7 @@ impl QueryCmd {
 fn parse_keyword(expr: Pair<Rule>) -> Result<QueryCmd, Box<dyn Error>> {
 
     let kws: Vec<_> = expr.into_inner().map(|kw| kw.as_str()).collect();
-    println!("kws: {:?}", kws);
+    //println!("kws: {:?}", kws);
     Ok(QueryCmd::keyword_access(&kws))
 }
 

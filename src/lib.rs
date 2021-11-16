@@ -194,7 +194,7 @@ fn eval(json: Value, query: QueryCmd) -> Value {
             json!(res)
         }
         (json, QueryCmd::FilterCmd(query, op, value)) => {
-            let query_dbg = query.clone();
+            //let query_dbg = query.clone();
             let res = eval(json.clone(), *query);
           //  println!("Query inner filter={:?}, value={:?}, res={:?}", query_dbg, json!(value), &res );
             //TODO we should really cover all json types here properly
@@ -282,7 +282,7 @@ fn streaming_eval<I: Read>(json_iter: StreamDeserializer<serde_json::de::IoRead<
 
              json_iter.map(|json|
                            {
-                               println!("filter cmd={:?}, json={:?}", cmd, json);
+                              // println!("filter cmd={:?}, json={:?}", cmd, json);
                              //  println!("json={:?}", json);
                                let json2 = json.unwrap();
                                let res = eval(json2.clone(), *cmd.clone());
