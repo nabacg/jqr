@@ -193,23 +193,8 @@ fn eval(json: Value, query: QueryCmd) -> Value {
             }
             json!(res)
         }
-        (json, QueryCmd::FilterCmd(query, op, value)) => {
-            //let query_dbg = query.clone();
-            let res = eval(json.clone(), *query);
-          //  println!("Query inner filter={:?}, value={:?}, res={:?}", query_dbg, json!(value), &res );
-            //TODO we should really cover all json types here properly
-            match res {
-                Number(n) if op == "=" &&  n == value.parse().unwrap() => json!(json),
-                // TODO seems like a classic case of multiple dispatch, extract into separate function, maybe in a trait?
-                Number(n) if op == ">" &&  n.is_i64() && n.as_i64().unwrap() > value.parse().unwrap() => json!(json),
-                Number(n) if op == ">" &&  n.is_f64() && n.as_f64().unwrap() > value.parse().unwrap() => json!(json),
-                Number(n) if op == "<" &&  n.is_i64() && n.as_i64().unwrap() < value.parse().unwrap() => json!(json),
-                Number(n) if op == "<" &&  n.is_f64() && n.as_f64().unwrap() < value.parse().unwrap() => json!(json),
-                serde_json::Value::String(s) if s == value => json!(json),
-                _ => json!("")
-
-            }
-
+        (json, f @ QueryCmd::FilterCmd(_, _, _)) => {
+            apply_filter(json, f)
         }
         (json, QueryCmd::MultiCmd(cmds)) => {
             let mut val = json;
@@ -233,6 +218,24 @@ fn eval_outer(json: Value, query: QueryCmd) {
 
 }
 
+fn apply_filter(candidate:Value, filter_cmd: QueryCmd ) -> Value {
+    if let QueryCmd::FilterCmd(cmd, op, value) = filter_cmd {
+        match eval(candidate.clone(), *cmd.clone()) {
+            Number(n) if op == "=" &&  n == value.parse().unwrap() => json!(candidate),
+            // TODO seems like a classic case of multiple dispatch, extract into separate function, maybe in a trait?
+            Number(n) if op == ">" &&  n.is_i64() && n.as_i64().unwrap() > value.parse().unwrap() => json!(candidate),
+            Number(n) if op == ">" &&  n.is_f64() && n.as_f64().unwrap() > value.parse().unwrap() => json!(candidate),
+            Number(n) if op == "<" &&  n.is_i64() && n.as_i64().unwrap() < value.parse().unwrap() => json!(candidate),
+            Number(n) if op == "<" &&  n.is_f64() && n.as_f64().unwrap() < value.parse().unwrap() => json!(candidate),
+            serde_json::Value::String(s) if s == value => json!(candidate),
+            _ => json!("")
+        } 
+    } else {
+        json!("")
+    }
+
+}
+
 fn streaming_eval<I: Read>(json_iter: StreamDeserializer<serde_json::de::IoRead<I>, Value>, query: QueryCmd) -> Result<(), Box<dyn Error>> {
      match &query {
         QueryCmd::ArrayIndexAccess(idx) =>
@@ -251,23 +254,19 @@ fn streaming_eval<I: Read>(json_iter: StreamDeserializer<serde_json::de::IoRead<
                     .map(|(_, jv)|
                          eval_outer(jv.unwrap(), QueryCmd::MultiCmd(cmds[1..].to_vec())))
                     .collect(),
-                // QueryCmd::FilterCmd(cmd, op, value) =>
-                //                                 println!("filter cmd={:?}", cmd);
-                //              //  println!("json={:?}", json);
-                //                let json2 = json.unwrap();
-                //                let res = eval(json2.clone(), *cmd.clone());
-                //                //println!("Filter res={:?}", res);
-                //                match res {
-                //                    Number(n) if op == "=" &&  n == value.parse().unwrap() => json2,
-                //                    // TODO seems like a classic case of multiple dispatch, extract into separate function, maybe in a trait?
-                //                    Number(n) if op == ">" &&  n.is_i64() && n.as_i64().unwrap() > value.parse().unwrap() => json2,
-                //                    Number(n) if op == ">" &&  n.is_f64() && n.as_f64().unwrap() > value.parse().unwrap() => json2,
-                //                    Number(n) if op == "<" &&  n.is_i64() && n.as_i64().unwrap() < value.parse().unwrap() => json2,
-                //                    Number(n) if op == "<" &&  n.is_f64() && n.as_f64().unwrap() < value.parse().unwrap() => json2,
-                //                    serde_json::Value::String(s) if s == *value => json2,
-                //                    _ => empty_json.clone()
+                 f @ QueryCmd::FilterCmd(_, _, _)=>  {
+                    let empty_json = json!("");
 
-                //                }
+                    json_iter
+                    .map(|json|
+                        {
+                            json.map(|j|  apply_filter(j, f.clone())).or(Ok(empty_json.clone()))
+                        })
+                    .filter(|jv: &Result<Value, Box<dyn Error>>| jv.as_ref().map_or(false, |j| *j != empty_json))
+                    .map(| jv|
+                        eval_outer(jv.unwrap(), QueryCmd::MultiCmd(cmds[1..].to_vec())))
+                    .collect()
+                },
                 _ =>  {
                     json_iter
                         .map(|jv|
@@ -276,37 +275,15 @@ fn streaming_eval<I: Read>(json_iter: StreamDeserializer<serde_json::de::IoRead<
                 }
             }
         },
-         QueryCmd::FilterCmd(cmd, op, value) => {
-            // let json_val = json!(value);
+         f @ QueryCmd::FilterCmd(_, _, _) => {
              let empty_json = json!("");
 
              json_iter.map(|json|
                            {
-                              // println!("filter cmd={:?}, json={:?}", cmd, json);
-                             //  println!("json={:?}", json);
-                               let json2 = json.unwrap();
-                               let res = eval(json2.clone(), *cmd.clone());
-                               //println!("Filter res={:?}", res);
-                               match res {
-                                   Number(n) if op == "=" &&  n == value.parse().unwrap() => json2,
-                                   // TODO seems like a classic case of multiple dispatch, extract into separate function, maybe in a trait?
-                                   Number(n) if op == ">" &&  n.is_i64() && n.as_i64().unwrap() > value.parse().unwrap() => json2,
-                                   Number(n) if op == ">" &&  n.is_f64() && n.as_f64().unwrap() > value.parse().unwrap() => json2,
-                                   Number(n) if op == "<" &&  n.is_i64() && n.as_i64().unwrap() < value.parse().unwrap() => json2,
-                                   Number(n) if op == "<" &&  n.is_f64() && n.as_f64().unwrap() < value.parse().unwrap() => json2,
-                                   serde_json::Value::String(s) if s == *value => json2,
-                                   _ => empty_json.clone()
-
-                               }
-                               // if json_val == res {
-                               //     json2
-                               // } else {
-                               //     empty_json.clone()
-                               // }
-
-                           }
-             ).filter(|jv| *jv != empty_json.clone())
-              .map(|j| write_json(&j))
+                               json.map(|j|  apply_filter(j, f.clone())).or(Ok(empty_json.clone()))
+                           })
+              .filter(|jv: &Result<Value, Box<dyn Error>>| jv.as_ref().map_or(false, |j| *j != empty_json))
+              .map(|j| write_json(&j.unwrap()))
               .for_each(drop)
          }
         query => {

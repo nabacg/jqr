@@ -200,7 +200,7 @@ mod parser_test {
 
         assert_eq!(run_parse("CTR < 0.1"),
                    QueryCmd::FilterCmd(Box::new(QueryCmd::keyword_access(&["CTR"])),
-                                       ">".to_string(),
+                                       "<".to_string(),
                                        "0.1".to_string()));
         
 
