@@ -185,7 +185,7 @@ fn eval(json: Value, query: QueryCmd) -> Value {
         (Value::Array(vs), cmd @ QueryCmd::FilterCmd(_, _, _ )) => {
             let mut res: Vec<Value> = Vec::new();
             for v in vs {
-                let r = eval(v, cmd.clone()); // ToDo this needs fixing this cloning
+                let r = apply_filter(v,cmd.clone()); // ToDo this needs fixing this cloning
                 if r != json!("") {
                     res.push(r);
                 }
@@ -229,7 +229,7 @@ fn apply_filter(candidate:Value, filter_cmd: QueryCmd ) -> Value {
             Number(n) if op == "<" &&  n.is_f64() && n.as_f64().unwrap() < value.parse().unwrap() => json!(candidate),
             serde_json::Value::String(s) if s == value => json!(candidate),
             _ => json!("")
-        } 
+        }
     } else {
         json!("")
     }
@@ -322,7 +322,10 @@ pub fn eval_cmd(cmd: CmdArgs) -> Result<(), Box<dyn Error>> {
         }
         (Some(input_file), None) => {
             let file = File::open(input_file)?;
-            Deserializer::from_reader(BufReader::new(file)).into_iter::<Value>().map(|jv| print_json(&(jv.unwrap()))).for_each(drop);
+            Deserializer::from_reader(BufReader::new(file))
+                .into_iter::<Value>()
+                .map(|jv| print_json(&(jv.unwrap())))
+                .for_each(drop);
             ()
         }
 
