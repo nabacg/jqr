@@ -5,14 +5,13 @@ extern crate pest_derive;
 
 use serde_json::Value::Number;
 use parser::QueryCmd;
-use serde_json::{StreamDeserializer, json};
+use serde_json::{json};
 use serde_json::map::Map;
 use serde_json::Value;
 use serde_json::Deserializer;
 use std::error::Error;
 use std::fs::File;
-use std::io::{self, Read, BufReader};
-use std::io::{Write};
+use std::io::{self, BufReader};
 mod parser;
 
 #[derive(Debug)]
@@ -82,18 +81,6 @@ fn print_json(val: &Value) {
     } else {
         println!("{}", val.to_string());
     }
-}
-
-
-fn write_json(val: &Value) -> io::Result<()> {
-    let mut stdout = io::stdout();
-    if let Ok(s) = serde_json::to_string_pretty(val) {
-        writeln!(&mut stdout, "{}", s)?
-    } else {
-        writeln!(&mut stdout, "{}", val.to_string())?
-
-    }
-    Ok(())
 }
 
 // ideally query should be an immutable ref, i.e. &QueryCmd but then we can't pattern match on both (json, query) because of Rust reasons..
@@ -207,14 +194,9 @@ fn eval(json: Value, query: QueryCmd) -> Value {
     }
 }
 
-fn eval_outer(json: Value, query: QueryCmd) {
+fn eval_and_print(json: Value, query: QueryCmd) {
     let res_json = eval(json, query);
-    let write_res = write_json(&res_json);
-    if let Ok(_res) =  write_res {
-
-    } else {
-        println!("write_json error{:?}", write_res)
-    }
+    print_json(&res_json)
 
 }
 
@@ -235,14 +217,14 @@ fn apply_filter(candidate:Value, filter_cmd: QueryCmd ) -> Value {
     }
 
 }
-
-fn streaming_eval<I: Read>(json_iter: StreamDeserializer<serde_json::de::IoRead<I>, Value>, query: QueryCmd) -> Result<(), Box<dyn Error>> {
+//https://stackoverflow.com/a/47606476
+fn streaming_eval(json_iter: impl Iterator<Item = Value>, query: QueryCmd) -> Result<(), Box<dyn Error>> {
      match &query {
         QueryCmd::ArrayIndexAccess(idx) =>
              json_iter
              .enumerate()
              .filter(|(i, _)| idx.contains(&i) )
-             .take(idx.len()).map(|(_, jv)| print_json(&(jv.unwrap())))
+             .take(idx.len()).map(|(_, jv)| print_json(&(jv)))
              .collect(),
         QueryCmd::MultiCmd(cmds) => {
             match &cmds[0] {
@@ -252,42 +234,46 @@ fn streaming_eval<I: Read>(json_iter: StreamDeserializer<serde_json::de::IoRead<
                     .filter(|(i, _)| idx.contains(&i) )
                     .take(idx.len())
                     .map(|(_, jv)|
-                         eval_outer(jv.unwrap(), QueryCmd::MultiCmd(cmds[1..].to_vec())))
+                         eval_and_print(jv, QueryCmd::MultiCmd(cmds[1..].to_vec())))
                     .collect(),
                  f @ QueryCmd::FilterCmd(_, _, _)=>  {
                     let empty_json = json!("");
 
                     json_iter
-                    .map(|json|
-                        {
-                            json.map(|j|  apply_filter(j, f.clone())).or(Ok(empty_json.clone()))
-                        })
-                    .filter(|jv: &Result<Value, Box<dyn Error>>| jv.as_ref().map_or(false, |j| *j != empty_json))
+                    .map(|json| apply_filter(json, f.clone()))
+                    .filter(|jv| *jv != empty_json)
                     .map(| jv|
-                        eval_outer(jv.unwrap(), QueryCmd::MultiCmd(cmds[1..].to_vec())))
+                        eval_and_print(jv, QueryCmd::MultiCmd(cmds[1..].to_vec())))
                     .collect()
                 },
-                _ =>  {
+                _cmd =>  {
                     json_iter
                         .map(|jv|
-                             eval_outer(jv.unwrap(), QueryCmd::MultiCmd(cmds.clone())))
+                             eval_and_print(jv, QueryCmd::MultiCmd(cmds.clone())))
                         .collect()
+
+                    // TODO Finish this, last time I tried it, it put rustc into infinite loop!
+                    //  let sliced_json =  json_iter
+                    //                     .map(|jv|
+                    //                          eval(jv, cmd.clone()));
+
+                    // let rest_cmds = cmds[1..].to_vec();
+                    // if rest_cmds.len() > 0 {
+                    //      streaming_eval(sliced_json, QueryCmd::MultiCmd(rest_cmds))?;
+                    // }
                 }
             }
         },
          f @ QueryCmd::FilterCmd(_, _, _) => {
              let empty_json = json!("");
 
-             json_iter.map(|json|
-                           {
-                               json.map(|j|  apply_filter(j, f.clone())).or(Ok(empty_json.clone()))
-                           })
-              .filter(|jv: &Result<Value, Box<dyn Error>>| jv.as_ref().map_or(false, |j| *j != empty_json))
-              .map(|j| write_json(&j.unwrap()))
+             json_iter.map(|json| apply_filter(json, f.clone()))
+              .filter(|jv| *jv != empty_json)
+              .map(|j| print_json(&j))
               .for_each(drop)
          }
         query => {
-            json_iter.map(|jv| eval_outer(jv.unwrap(), query.clone())).collect()
+            json_iter.map(|jv| eval_and_print(jv, query.clone())).collect()
         }
     }
 
@@ -304,13 +290,13 @@ pub fn eval_cmd(cmd: CmdArgs) -> Result<(), Box<dyn Error>> {
             let std_in = io::stdin();
             //let reader = Box::new(std_in.lock()) as Box<BufRead>;
             let rdr = std_in.lock();
-            let json_iter  = Deserializer::from_reader(rdr).into_iter::<Value>();
+            let json_iter  = Deserializer::from_reader(rdr).into_iter::<Value>().map(|v|v.unwrap());
             streaming_eval(json_iter, cmd)?;
             ()
         }
         (Some(input_file), Some(Ok(cmd))) => {
             let file = File::open(input_file)?;
-            let json_iter  = Deserializer::from_reader(BufReader::new(file)).into_iter::<Value>();
+            let json_iter  = Deserializer::from_reader(BufReader::new(file)).into_iter::<Value>().map(|v|v.unwrap());
 
             streaming_eval(json_iter, cmd)?;
             ()
