@@ -4,6 +4,10 @@ arrayIndex = @{ ASCII_DIGIT+ }
 
 indexAccess = { "[" ~ arrayIndex ~ ( "," ~ arrayIndex )* ~ "]" }
 
+rangeIndexAccess = { "[" ~ arrayIndex ~ ".." ~ arrayIndex ~ "]" }
+
+indexAccessAlts = _{ rangeIndexAccess | indexAccess  }
+
 singleKeyword = @{ ASCII_ALPHANUMERIC+ }
 
 multiKeyword = { singleKeyword ~ ( "." ~ singleKeyword )* }
@@ -16,7 +20,7 @@ assignProp = { singleKeyword ~ ":=" ~  jqExpr }
 
 newObjExpr = { "{" ~ assignProp ~ ( ";" ~ assignProp)* ~ "}" }
 
-queryExpr = _{ indexAccess | keysExpr  | valsExpr | countExpr | multiKeyword }
+queryExpr = _{ indexAccessAlts | keysExpr  | valsExpr | countExpr | multiKeyword }
 
 integerValue = @{ ASCII_DIGIT+ }
 

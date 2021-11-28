@@ -76,6 +76,14 @@ fn parse_expr(expr: Pair<Rule>) -> Result<QueryCmd, Box<dyn Error>> {
             let idx: Vec<usize> = expr.into_inner().map(|kw| kw.as_str().parse::<usize>().unwrap()).collect();
             Ok(QueryCmd::ArrayIndexAccess(idx))
         },
+        Rule::rangeIndexAccess => {
+            let idx_range: Vec<usize> = expr.into_inner().map(|e| e.as_str().parse::<usize>().unwrap()).collect();
+            if idx_range.len() != 2 {
+                panic!("expected [from..to], got: {:?}", idx_range)
+            }
+
+            Ok(QueryCmd::ArrayIndexAccess((idx_range[0]..idx_range[1]).collect()))
+        },
         Rule::filterExpr => {
             let mut expr = expr.into_inner();
             let query_expr = expr.next().ok_or(parse_err("filterExpr - invalid queryExpr"))?;
@@ -139,6 +147,10 @@ mod parser_test {
         assert_eq!(run_parse("[0]"), QueryCmd::ArrayIndexAccess(vec![0]));
         assert_eq!(parse("[]").err().is_some(), true);
         assert_eq!(run_parse("[1,3, 5]"), QueryCmd::ArrayIndexAccess(vec![1,3,5]));
+        assert_eq!(run_parse("[11..15]"), QueryCmd::ArrayIndexAccess(vec![11, 12, 13, 14]));
+        assert_eq!(run_parse("[15..11]"), QueryCmd::ArrayIndexAccess(vec![]));
+        assert_eq!(run_parse("[15..15]"), QueryCmd::ArrayIndexAccess(vec![]));
+
 
         assert_eq!(parse("[1,3, ea]").err().is_some(), true);
 

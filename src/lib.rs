@@ -76,11 +76,15 @@ pub fn read_json_file(file: &String) -> Result<Value, Box<dyn Error>> {
 }
 
 fn print_json(val: &Value) {
-    if let Ok(s) = serde_json::to_string_pretty(val) {
-        println!("{}", s)
-    } else {
-        println!("{}", val.to_string());
+    // TODO we should really be removing those empty_jsons earlier in the pipeline
+    if *val != json!("") {
+        if let Ok(s) = serde_json::to_string_pretty(val) {
+            println!("{}", s)
+        } else {
+            println!("{}", val.to_string());
+        }
     }
+
 }
 
 // ideally query should be an immutable ref, i.e. &QueryCmd but then we can't pattern match on both (json, query) because of Rust reasons..
@@ -152,9 +156,9 @@ fn eval(json: Value, query: QueryCmd) -> Value {
 
                 let shortest: usize = vals
                     .iter()
-                    .map(|v| v.as_array().unwrap().len())
+                    .map(|v| v.as_array().map(|a| a.len()).unwrap_or(0))
                     .max()
-                    .unwrap();
+                    .unwrap_or(0);
 
                 let mut res: Vec<Value> = Vec::new();
                 for i in 0..shortest {
@@ -218,28 +222,57 @@ fn apply_filter(candidate:Value, filter_cmd: QueryCmd) -> Value {
 
 }
 
+fn can_apply_consecutive(cmd: &QueryCmd) -> bool {
+    match cmd {
+        QueryCmd::FilterCmd(_, _, _) => true,
+        QueryCmd::KeywordAccess(_) => true, 
+        QueryCmd::TransformIntoObject(_) => true,
+// everything else either needs to accumlate state (ArrayIndexAccess) or terminates computation (keys, Count, listvals)
+        _ => false
+    }
+}
+
+fn apply_cmd(v: Value, cmd: &QueryCmd) -> Value {
+    match cmd {
+        QueryCmd::FilterCmd(_, _, _) => apply_filter(v, cmd.clone()),
+        QueryCmd::KeywordAccess(_) => eval(v, cmd.clone()),
+        QueryCmd::TransformIntoObject(_) => eval(v, cmd.clone()),
+        _ => json!("")
+    }
+}
+
+
 fn apply_consecutive_filters(candidate:Value, cmds: Vec<QueryCmd> ) -> (Value, Vec<QueryCmd>) {
 
     // let filter_pred = |c:QueryCmd| matches!(c, QueryCmd::FilterCmd(_, _, _));
     let mut v = candidate;
-    let rest : Vec<QueryCmd> = cmds.iter().skip_while(|c| matches!(c, QueryCmd::FilterCmd(_, _, _))).map(|c| c.clone()).collect();
-    for cmd in cmds.iter().take_while(|c| matches!(c, QueryCmd::FilterCmd(_, _, _))) {
-        v = apply_filter(v, cmd.clone())
+    let rest : Vec<QueryCmd> = cmds.iter().skip_while(|c| can_apply_consecutive(c)).map(|c| c.clone()).collect();
+    for cmd in cmds.iter().take_while(|c| can_apply_consecutive(c)) {
+        v = apply_cmd(v, cmd)
     }
     (v, rest)
 
 }
 
+// fn apply_array_indices<'j>(json_iter: impl 'j + Iterator<Item = Value>, idx: Vec<usize>) -> Box<dyn 'j +  Iterator<Item = Value>> {
+
+//     let mut iter = json_iter;
+//     Box::new(idx.iter().map(|i| { 
+//         let x = *i;
+//         iter.nth(x).unwrap()
+//     }))
+// }
+
+
 //https://stackoverflow.com/a/47606476
-fn streaming_eval(json_iter: impl Iterator<Item = Value>, query: QueryCmd) -> Result<(), Box<dyn Error>> {
+fn streaming_eval(mut json_iter: impl Iterator<Item = Value>, query: QueryCmd) -> Result<(), Box<dyn Error>> {
     let empty_json = json!("");
      match &query {
-        QueryCmd::ArrayIndexAccess(idx) =>
-             json_iter
-             .enumerate()
-             .filter(|(i, _)| idx.contains(&i) )
-             .take(idx.len()).map(|(_, jv)| print_json(&(jv)))
-             .collect(),
+        QueryCmd::ArrayIndexAccess(idx) => idx.iter()
+                        .map(|i| json_iter.nth(*i))
+                        .filter(|j| j.is_some())
+                        .map(|j| print_json(&j.unwrap()))
+                        .collect(),
         f @ QueryCmd::FilterCmd(_, _, _) => {
                 json_iter.map(|json| apply_filter(json, f.clone()))
                  .filter(|jv| *jv != empty_json)
@@ -249,11 +282,15 @@ fn streaming_eval(json_iter: impl Iterator<Item = Value>, query: QueryCmd) -> Re
         QueryCmd::MultiCmd(cmds) => {
             match &cmds[0] {
                 QueryCmd::ArrayIndexAccess(idx) => {
-                    json_iter
-                    .enumerate()
-                    .filter(|(i, _)| idx.contains(&i))
-                    .take(idx.len())
-                    .map(|(_, json)| json)
+                    println!("THERE");
+                    // TODO maybe for handliing ArrayIndexAccess we could implement the stateful iterator adapter
+                    // along the lines of Take     https://doc.rust-lang.org/src/core/iter/adapters/take.rs.html#15-18
+                    let json_iter2 = idx.iter()
+                    .map(|i| json_iter.nth(*i))
+                    .filter(|j| j.is_some())
+                    .map(|j| j.unwrap());
+
+                    json_iter2
                     .map(|json| apply_consecutive_filters(json, cmds.to_vec()))
                     .filter(|(jv, _)| *jv != empty_json)
                     .map(|(jv, cmds)|
@@ -265,6 +302,7 @@ fn streaming_eval(json_iter: impl Iterator<Item = Value>, query: QueryCmd) -> Re
                     .collect()
                 },
                 QueryCmd::FilterCmd(_, _, _)=>  {
+                    println!("HERE");
                         json_iter
                         .map(|json| apply_consecutive_filters(json, cmds.to_vec()))
                         .filter(|(jv, _)| *jv != empty_json)
@@ -276,16 +314,7 @@ fn streaming_eval(json_iter: impl Iterator<Item = Value>, query: QueryCmd) -> Re
                             })
                         .collect()
                 },
-                //  f @ QueryCmd::FilterCmd(_, _, _)=>  {
-                //     let empty_json = json!("");
 
-                //     json_iter
-                //     .map(|json| apply_filter(json, f.clone()))  // TODO it's really here that's you'd want to apply all applicable cmds, transducer style
-                //     .filter(|jv| *jv != empty_json)             // i.e. if there are several filters (or ArrayIndexAccess), we could apply them one after other
-                //     .map(| jv|
-                //         eval_and_print(jv, QueryCmd::MultiCmd(cmds[1..].to_vec())))
-                //     .collect()
-                // },
                 _cmd =>  {
                     // json_iter
                     //     .map(|jv|
