@@ -200,7 +200,7 @@ fn eval_and_print(json: Value, query: QueryCmd) {
 
 }
 
-fn apply_filter(candidate:Value, filter_cmd: QueryCmd ) -> Value {
+fn apply_filter(candidate:Value, filter_cmd: QueryCmd) -> Value {
     if let QueryCmd::FilterCmd(cmd, op, value) = filter_cmd {
         match eval(candidate.clone(), *cmd.clone()) {
             Number(n) if op == "=" &&  n == value.parse().unwrap() => json!(candidate),
@@ -217,8 +217,22 @@ fn apply_filter(candidate:Value, filter_cmd: QueryCmd ) -> Value {
     }
 
 }
+
+fn apply_consecutive_filters(candidate:Value, cmds: Vec<QueryCmd> ) -> (Value, Vec<QueryCmd>) {
+
+    // let filter_pred = |c:QueryCmd| matches!(c, QueryCmd::FilterCmd(_, _, _));
+    let mut v = candidate;
+    let rest : Vec<QueryCmd> = cmds.iter().skip_while(|c| matches!(c, QueryCmd::FilterCmd(_, _, _))).map(|c| c.clone()).collect();
+    for cmd in cmds.iter().take_while(|c| matches!(c, QueryCmd::FilterCmd(_, _, _))) {
+        v = apply_filter(v, cmd.clone())
+    }
+    (v, rest)
+
+}
+
 //https://stackoverflow.com/a/47606476
 fn streaming_eval(json_iter: impl Iterator<Item = Value>, query: QueryCmd) -> Result<(), Box<dyn Error>> {
+    let empty_json = json!("");
      match &query {
         QueryCmd::ArrayIndexAccess(idx) =>
              json_iter
@@ -226,52 +240,87 @@ fn streaming_eval(json_iter: impl Iterator<Item = Value>, query: QueryCmd) -> Re
              .filter(|(i, _)| idx.contains(&i) )
              .take(idx.len()).map(|(_, jv)| print_json(&(jv)))
              .collect(),
+        f @ QueryCmd::FilterCmd(_, _, _) => {
+                json_iter.map(|json| apply_filter(json, f.clone()))
+                 .filter(|jv| *jv != empty_json)
+                 .map(|j| print_json(&j))
+                 .for_each(drop)
+        },
         QueryCmd::MultiCmd(cmds) => {
             match &cmds[0] {
-                QueryCmd::ArrayIndexAccess(idx) =>
+                QueryCmd::ArrayIndexAccess(idx) => {
                     json_iter
                     .enumerate()
-                    .filter(|(i, _)| idx.contains(&i) )
+                    .filter(|(i, _)| idx.contains(&i))
                     .take(idx.len())
-                    .map(|(_, jv)|
-                         eval_and_print(jv, QueryCmd::MultiCmd(cmds[1..].to_vec())))
-                    .collect(),
-                 f @ QueryCmd::FilterCmd(_, _, _)=>  {
-                    let empty_json = json!("");
-
-                    json_iter
-                    .map(|json| apply_filter(json, f.clone()))
-                    .filter(|jv| *jv != empty_json)
-                    .map(| jv|
-                        eval_and_print(jv, QueryCmd::MultiCmd(cmds[1..].to_vec())))
+                    .map(|(_, json)| json)
+                    .map(|json| apply_consecutive_filters(json, cmds.to_vec()))
+                    .filter(|(jv, _)| *jv != empty_json)
+                    .map(|(jv, cmds)|
+                        if cmds.len() > 0 {
+                            eval_and_print(jv, QueryCmd::MultiCmd(cmds[1..].to_vec()))
+                        } else {
+                            print_json(&jv)
+                        })
                     .collect()
                 },
-                _cmd =>  {
-                    json_iter
-                        .map(|jv|
-                             eval_and_print(jv, QueryCmd::MultiCmd(cmds.clone())))
+                QueryCmd::FilterCmd(_, _, _)=>  {
+                        json_iter
+                        .map(|json| apply_consecutive_filters(json, cmds.to_vec()))
+                        .filter(|(jv, _)| *jv != empty_json)
+                        .map(|(jv, cmds)|
+                            if cmds.len() > 0 {
+                                eval_and_print(jv, QueryCmd::MultiCmd(cmds))
+                            } else {
+                                print_json(&jv)
+                            })
                         .collect()
+                },
+                //  f @ QueryCmd::FilterCmd(_, _, _)=>  {
+                //     let empty_json = json!("");
+
+                //     json_iter
+                //     .map(|json| apply_filter(json, f.clone()))  // TODO it's really here that's you'd want to apply all applicable cmds, transducer style
+                //     .filter(|jv| *jv != empty_json)             // i.e. if there are several filters (or ArrayIndexAccess), we could apply them one after other
+                //     .map(| jv|
+                //         eval_and_print(jv, QueryCmd::MultiCmd(cmds[1..].to_vec())))
+                //     .collect()
+                // },
+                _cmd =>  {
+                    // json_iter
+                    //     .map(|jv|
+                    //          eval_and_print(jv, QueryCmd::MultiCmd(cmds.clone())))
+                    //     .collect()
+
+                    // let mut sliced_json = json_iter.map(|jv|
+                    //     eval(jv, cmd.clone()));
+
+                    // for cmd in cmds[1..].to_vec() {
+                    //     sliced_json =  sliced_json.map(|jv|
+                    //         eval(jv, cmd.clone()));
+                    // }
+
 
                     // TODO Finish this, last time I tried it, it put rustc into infinite loop!
-                    //  let sliced_json =  json_iter
-                    //                     .map(|jv|
-                    //                          eval(jv, cmd.clone()));
-
+                    // let sliced_json = json_iter.map(|jv|  eval(jv, _cmd.clone()));
                     // let rest_cmds = cmds[1..].to_vec();
                     // if rest_cmds.len() > 0 {
                     //      streaming_eval(sliced_json, QueryCmd::MultiCmd(rest_cmds))?;
                     // }
+                    // ()
+
+
+
+                    let mut sliced_json = json_iter.collect::<Vec<Value>>();
+                    for cmd in cmds {
+                        sliced_json = sliced_json
+                        .iter()
+                        .map(|jv|  eval(jv.clone(), cmd.clone()))
+                        .collect::<Vec<Value>>();
+                    }
                 }
             }
         },
-         f @ QueryCmd::FilterCmd(_, _, _) => {
-             let empty_json = json!("");
-
-             json_iter.map(|json| apply_filter(json, f.clone()))
-              .filter(|jv| *jv != empty_json)
-              .map(|j| print_json(&j))
-              .for_each(drop)
-         }
         query => {
             json_iter.map(|jv| eval_and_print(jv, query.clone())).collect()
         }
