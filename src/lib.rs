@@ -77,14 +77,14 @@ pub fn read_json_file(file: &String) -> Result<Value, Box<dyn Error>> {
 
 fn print_json(val: &Value) {
     // TODO we should really be removing those empty_jsons earlier in the pipeline
-    if *val != json!("") {
-        if let Ok(s) = serde_json::to_string_pretty(val) {
-            println!("{}", s)
-        } else {
-            println!("{}", val.to_string());
-        }
-    }
+    // if *val != json!("") {
 
+    // }
+    if let Ok(s) = serde_json::to_string_pretty(val) {
+        println!("{}", s)
+    } else {
+        println!("{}", val.to_string());
+    }
 }
 
 // ideally query should be an immutable ref, i.e. &QueryCmd but then we can't pattern match on both (json, query) because of Rust reasons..
@@ -176,8 +176,7 @@ fn eval(json: Value, query: QueryCmd) -> Value {
         (Value::Array(vs), cmd @ QueryCmd::FilterCmd(_, _, _ )) => {
             let mut res: Vec<Value> = Vec::new();
             for v in vs {
-                let r = apply_filter(v,cmd.clone()); // ToDo this needs fixing this cloning
-                if r != json!("") {
+                if let Some(r) = apply_filter(v,cmd.clone()) {  // ToDo this needs fixing this cloning
                     res.push(r);
                 }
 
@@ -185,7 +184,7 @@ fn eval(json: Value, query: QueryCmd) -> Value {
             json!(res)
         }
         (json, f @ QueryCmd::FilterCmd(_, _, _)) => {
-            apply_filter(json, f)
+            apply_filter(json, f).unwrap_or(json!("")) // TODO handle Option properly, when eval can become a -> Option<Value>
         }
         (json, QueryCmd::MultiCmd(cmds)) => {
             let mut val = json;
@@ -204,20 +203,20 @@ fn eval_and_print(json: Value, query: QueryCmd) {
 
 }
 
-fn apply_filter(candidate:Value, filter_cmd: QueryCmd) -> Value {
+fn apply_filter(candidate:Value, filter_cmd: QueryCmd) -> Option<Value> {
     if let QueryCmd::FilterCmd(cmd, op, value) = filter_cmd {
         match eval(candidate.clone(), *cmd.clone()) {
-            Number(n) if op == "=" &&  n == value.parse().unwrap() => json!(candidate),
+            Number(n) if op == "=" &&  n == value.parse().unwrap() => Some(json!(candidate)),
             // TODO seems like a classic case of multiple dispatch, extract into separate function, maybe in a trait?
-            Number(n) if op == ">" &&  n.is_i64() && n.as_i64().unwrap() > value.parse().unwrap() => json!(candidate),
-            Number(n) if op == ">" &&  n.is_f64() && n.as_f64().unwrap() > value.parse().unwrap() => json!(candidate),
-            Number(n) if op == "<" &&  n.is_i64() && n.as_i64().unwrap() < value.parse().unwrap() => json!(candidate),
-            Number(n) if op == "<" &&  n.is_f64() && n.as_f64().unwrap() < value.parse().unwrap() => json!(candidate),
-            serde_json::Value::String(s) if s == value => json!(candidate),
-            _ => json!("")
+            Number(n) if op == ">" &&  n.is_i64() && n.as_i64().unwrap() > value.parse().unwrap() => Some(json!(candidate)),
+            Number(n) if op == ">" &&  n.is_f64() && n.as_f64().unwrap() > value.parse().unwrap() => Some(json!(candidate)),
+            Number(n) if op == "<" &&  n.is_i64() && n.as_i64().unwrap() < value.parse().unwrap() => Some(json!(candidate)),
+            Number(n) if op == "<" &&  n.is_f64() && n.as_f64().unwrap() < value.parse().unwrap() => Some(json!(candidate)),
+            serde_json::Value::String(s) if s == value => Some(json!(candidate)),
+            _ => None
         }
     } else {
-        json!("")
+        None
     }
 
 }
@@ -225,30 +224,45 @@ fn apply_filter(candidate:Value, filter_cmd: QueryCmd) -> Value {
 fn can_apply_consecutive(cmd: &QueryCmd) -> bool {
     match cmd {
         QueryCmd::FilterCmd(_, _, _) => true,
-        QueryCmd::KeywordAccess(_) => true, 
+        QueryCmd::KeywordAccess(_) => true,
         QueryCmd::TransformIntoObject(_) => true,
 // everything else either needs to accumlate state (ArrayIndexAccess) or terminates computation (keys, Count, listvals)
         _ => false
     }
 }
 
-fn apply_cmd(v: Value, cmd: &QueryCmd) -> Value {
+fn apply_cmd(v: Value, cmd: &QueryCmd) -> Option<Value> {
     match cmd {
         QueryCmd::FilterCmd(_, _, _) => apply_filter(v, cmd.clone()),
-        QueryCmd::KeywordAccess(_) => eval(v, cmd.clone()),
-        QueryCmd::TransformIntoObject(_) => eval(v, cmd.clone()),
-        _ => json!("")
+        QueryCmd::KeywordAccess(_) => {
+            let r = eval(v, cmd.clone());
+            if r == json!("") {
+                None
+            } else {
+                Some(r)
+            }
+        },
+        QueryCmd::TransformIntoObject(_) => {
+            let r = eval(v, cmd.clone());
+            if r == json!("") {
+                None
+            } else {
+                Some(r)
+            }
+        },
+        _ => None
     }
 }
 
 
-fn apply_consecutive_filters(candidate:Value, cmds: Vec<QueryCmd> ) -> (Value, Vec<QueryCmd>) {
+fn apply_consecutive_filters(candidate:Value, cmds: Vec<QueryCmd> ) -> (Option<Value>, Vec<QueryCmd>) {
 
     // let filter_pred = |c:QueryCmd| matches!(c, QueryCmd::FilterCmd(_, _, _));
-    let mut v = candidate;
+    let mut v = Some(candidate);
     let rest : Vec<QueryCmd> = cmds.iter().skip_while(|c| can_apply_consecutive(c)).map(|c| c.clone()).collect();
     for cmd in cmds.iter().take_while(|c| can_apply_consecutive(c)) {
-        v = apply_cmd(v, cmd)
+
+        v =  v.and_then(|j| apply_cmd(j, cmd));
     }
     (v, rest)
 
@@ -257,7 +271,7 @@ fn apply_consecutive_filters(candidate:Value, cmds: Vec<QueryCmd> ) -> (Value, V
 // fn apply_array_indices<'j>(json_iter: impl 'j + Iterator<Item = Value>, idx: Vec<usize>) -> Box<dyn 'j +  Iterator<Item = Value>> {
 
 //     let mut iter = json_iter;
-//     Box::new(idx.iter().map(|i| { 
+//     Box::new(idx.iter().map(|i| {
 //         let x = *i;
 //         iter.nth(x).unwrap()
 //     }))
@@ -266,7 +280,6 @@ fn apply_consecutive_filters(candidate:Value, cmds: Vec<QueryCmd> ) -> (Value, V
 
 //https://stackoverflow.com/a/47606476
 fn streaming_eval(mut json_iter: impl Iterator<Item = Value>, query: QueryCmd) -> Result<(), Box<dyn Error>> {
-    let empty_json = json!("");
      match &query {
         QueryCmd::ArrayIndexAccess(idx) => idx.iter()
                         .map(|i| json_iter.nth(*i))
@@ -275,8 +288,8 @@ fn streaming_eval(mut json_iter: impl Iterator<Item = Value>, query: QueryCmd) -
                         .collect(),
         f @ QueryCmd::FilterCmd(_, _, _) => {
                 json_iter.map(|json| apply_filter(json, f.clone()))
-                 .filter(|jv| *jv != empty_json)
-                 .map(|j| print_json(&j))
+                 .filter(|jv| jv.is_some())
+                 .map(|j| print_json(&j.unwrap()))
                  .for_each(drop)
         },
         QueryCmd::MultiCmd(cmds) => {
@@ -291,55 +304,36 @@ fn streaming_eval(mut json_iter: impl Iterator<Item = Value>, query: QueryCmd) -
                     .map(|j| j.unwrap());
 
                     json_iter2
-                    .map(|json| apply_consecutive_filters(json, cmds.to_vec()))
-                    .filter(|(jv, _)| *jv != empty_json)
-                    .map(|(jv, cmds)|
+                    .map(|json| apply_consecutive_filters(json, cmds[1..].to_vec()))
+                    .filter(|(jv, _)| jv.is_some())
+                    .map(|(jv, cmds)| {
+                        let jv = jv.unwrap();
+                        //println!("jv={:?}, cmds={:?}", jv, cmds);
                         if cmds.len() > 0 {
                             eval_and_print(jv, QueryCmd::MultiCmd(cmds[1..].to_vec()))
                         } else {
                             print_json(&jv)
-                        })
+                        }
+                    })
                     .collect()
                 },
                 QueryCmd::FilterCmd(_, _, _)=>  {
                     println!("HERE");
                         json_iter
                         .map(|json| apply_consecutive_filters(json, cmds.to_vec()))
-                        .filter(|(jv, _)| *jv != empty_json)
-                        .map(|(jv, cmds)|
+                        .filter(|(jv, _)| jv.is_some())
+                        .map(|(jv, cmds)| {
+                            let jv = jv.unwrap();
                             if cmds.len() > 0 {
                                 eval_and_print(jv, QueryCmd::MultiCmd(cmds))
                             } else {
                                 print_json(&jv)
-                            })
+                            }
+                        })
                         .collect()
                 },
 
                 _cmd =>  {
-                    // json_iter
-                    //     .map(|jv|
-                    //          eval_and_print(jv, QueryCmd::MultiCmd(cmds.clone())))
-                    //     .collect()
-
-                    // let mut sliced_json = json_iter.map(|jv|
-                    //     eval(jv, cmd.clone()));
-
-                    // for cmd in cmds[1..].to_vec() {
-                    //     sliced_json =  sliced_json.map(|jv|
-                    //         eval(jv, cmd.clone()));
-                    // }
-
-
-                    // TODO Finish this, last time I tried it, it put rustc into infinite loop!
-                    // let sliced_json = json_iter.map(|jv|  eval(jv, _cmd.clone()));
-                    // let rest_cmds = cmds[1..].to_vec();
-                    // if rest_cmds.len() > 0 {
-                    //      streaming_eval(sliced_json, QueryCmd::MultiCmd(rest_cmds))?;
-                    // }
-                    // ()
-
-
-
                     let mut sliced_json = json_iter.collect::<Vec<Value>>();
                     for cmd in cmds {
                         sliced_json = sliced_json
@@ -351,7 +345,8 @@ fn streaming_eval(mut json_iter: impl Iterator<Item = Value>, query: QueryCmd) -
             }
         },
         query => {
-            json_iter.map(|jv| eval_and_print(jv, query.clone())).collect()
+            json_iter.map(|jv|
+                eval_and_print(jv, query.clone())).collect()
         }
     }
 
@@ -381,7 +376,7 @@ pub fn eval_cmd(cmd: CmdArgs) -> Result<(), Box<dyn Error>> {
         },
         (None, None) => {
             let stdin = io::stdin();
-            Deserializer::from_reader(stdin.lock()).into_iter::<Value>().map(|jv| print_json(&(jv.unwrap()))).for_each(drop);
+            Deserializer::from_reader(stdin.lock()).into_iter::<Value>().map(|jv| print_json(&jv.unwrap())).for_each(drop);
             ()
         }
         (Some(input_file), None) => {
