@@ -42,6 +42,10 @@ impl QueryCmd {
     fn keyword_access(kws: &[&str]) -> QueryCmd {
         QueryCmd::KeywordAccess(kws.iter().map(|k| k.to_string()).collect())
     }
+
+    fn filter_cmd(f: QueryCmd, op: &str, v: &str) -> QueryCmd {
+        QueryCmd::FilterCmd(Box::new(f), op.to_string(), v.to_string())
+    }
 }
 
 // fn next_res<T>(op: Pair<T>) -> Result<T, Box<dyn Error>> {
@@ -78,9 +82,9 @@ fn parse_expr(expr: Pair<Rule>) -> Result<QueryCmd, Box<dyn Error>> {
             let op_expr    = expr.next().ok_or(parse_err("filterExpr - invalid operatorExpr"))?;
             let val_expr   = expr.next().ok_or(parse_err("filterExpr - invalid valueExpr"))?;
  
-            Ok(QueryCmd::FilterCmd(Box::new(parse_keyword(query_expr)?),
-                                   op_expr.as_str().to_string(),
-                                   val_expr.as_str().to_string()))
+            Ok(QueryCmd::filter_cmd(parse_keyword(query_expr)?,
+                                   op_expr.as_str(),
+                                   val_expr.as_str()))
 
         },
         Rule::multiExpr => {
@@ -143,11 +147,11 @@ mod parser_test {
         assert_eq!(run_parse(".keys"), QueryCmd::ListKeys);
         assert_eq!(run_parse(".count"), QueryCmd::Count);
 
-        assert_eq!(run_parse("username = \"Adam\""), QueryCmd::FilterCmd(Box::new(
-            QueryCmd::keyword_access(&["username"])), "=".to_string(),  "Adam".to_string()));
+        assert_eq!(run_parse("username = \"Adam\""), QueryCmd::filter_cmd(
+            QueryCmd::keyword_access(&["username"]), "=",  "Adam"));
 
-        assert_eq!(run_parse("address = \"P Sherman 42 Wallaby Way\""), QueryCmd::FilterCmd(Box::new(
-            QueryCmd::keyword_access(&["address"])), "=".to_string(), "P Sherman 42 Wallaby Way".to_string()));
+        assert_eq!(run_parse("address = \"P Sherman 42 Wallaby Way\""), QueryCmd::filter_cmd(
+            QueryCmd::keyword_access(&["address"]), "=", "P Sherman 42 Wallaby Way"));
         
 
         assert_eq!(run_parse("[230] | a.b"),
@@ -178,30 +182,22 @@ mod parser_test {
                        QueryCmd::ArrayIndexAccess(vec![0]),
                        QueryCmd::keyword_access(&["Details"]),
                        QueryCmd::ArrayIndexAccess(vec![0]),
-                       QueryCmd::FilterCmd(Box::new(QueryCmd::keyword_access(&["LastDate"])),
-                                           "=".to_string(),
-                                           "2020-04-24T00:00:00Z".to_string())
+                       QueryCmd::filter_cmd(QueryCmd::keyword_access(&["LastDate"]),
+                                           "=",
+                                           "2020-04-24T00:00:00Z")
                    ]));
 
         assert_eq!(run_parse("LastDate = \"2020\""),
-                   QueryCmd::FilterCmd(Box::new(QueryCmd::keyword_access(&["LastDate"])),
-                                       "=".to_string(),
-                                       "2020".to_string()));
+                   QueryCmd::filter_cmd(QueryCmd::keyword_access(&["LastDate"]), "=", "2020"));
 
         assert_eq!(run_parse("Clicks = 7"),
-                   QueryCmd::FilterCmd(Box::new(QueryCmd::keyword_access(&["Clicks"])),
-                                       "=".to_string(),
-                                       "7".to_string()));
+                   QueryCmd::filter_cmd(QueryCmd::keyword_access(&["Clicks"]), "=", "7"));
 
         assert_eq!(run_parse("Clicks > 0"),
-                   QueryCmd::FilterCmd(Box::new(QueryCmd::keyword_access(&["Clicks"])),
-                                       ">".to_string(),
-                                       "0".to_string()));
+                   QueryCmd::filter_cmd(QueryCmd::keyword_access(&["Clicks"]), ">", "0"));
 
         assert_eq!(run_parse("CTR < 0.1"),
-                   QueryCmd::FilterCmd(Box::new(QueryCmd::keyword_access(&["CTR"])),
-                                       "<".to_string(),
-                                       "0.1".to_string()));
+                   QueryCmd::filter_cmd(QueryCmd::keyword_access(&["CTR"]), "<", "0.1"));
         
 
 
