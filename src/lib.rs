@@ -75,18 +75,6 @@ pub fn read_json_file(file: &String) -> Result<Value, Box<dyn Error>> {
     Ok(json)
 }
 
-fn print_json(val: &Value) {
-    // TODO we should really be removing those empty_jsons earlier in the pipeline
-    // if *val != json!("") {
-
-    // }
-    if let Ok(s) = serde_json::to_string_pretty(val) {
-        println!("{}", s)
-    } else {
-        println!("{}", val.to_string());
-    }
-}
-
 // ideally query should be an immutable ref, i.e. &QueryCmd but then we can't pattern match on both (json, query) because of Rust reasons..
 // but it would be great to solve it to avoid cloing QueryCmd on each recursive call
 // ToDo - could I use lifetimes to avoid cloning QueryCmd here?
@@ -197,12 +185,6 @@ fn eval(json: Value, query: QueryCmd) -> Value {
     }
 }
 
-fn eval_and_print(json: Value, query: QueryCmd) {
-    let res_json = eval(json, query);
-    print_json(&res_json)
-
-}
-
 fn apply_filter(candidate:Value, filter_cmd: QueryCmd) -> Option<Value> {
     if let QueryCmd::FilterCmd(cmd, op, value) = filter_cmd {
         match eval(candidate.clone(), *cmd.clone()) {
@@ -268,28 +250,19 @@ fn apply_consecutive_filters(candidate:Value, cmds: Vec<QueryCmd> ) -> (Option<V
 
 }
 
-// fn apply_array_indices<'j>(json_iter: impl 'j + Iterator<Item = Value>, idx: Vec<usize>) -> Box<dyn 'j +  Iterator<Item = Value>> {
-
-//     let mut iter = json_iter;
-//     Box::new(idx.iter().map(|i| {
-//         let x = *i;
-//         iter.nth(x).unwrap()
-//     }))
-// }
-
 
 //https://stackoverflow.com/a/47606476
-fn streaming_eval(mut json_iter: impl Iterator<Item = Value>, query: QueryCmd) -> Result<(), Box<dyn Error>> {
+fn streaming_eval(out: &mut dyn io::Write, mut json_iter: impl Iterator<Item = Value>, query: QueryCmd) -> Result<(), Box<dyn Error>> {
      match &query {
         QueryCmd::ArrayIndexAccess(idx) => idx.iter()
                         .map(|i| json_iter.nth(*i))
                         .filter(|j| j.is_some())
-                        .map(|j| print_json(&j.unwrap()))
+                        .map(|j| print_json(out, &j.unwrap()))
                         .collect(),
         f @ QueryCmd::FilterCmd(_, _, _) => {
                 json_iter.map(|json| apply_filter(json, f.clone()))
                  .filter(|jv| jv.is_some())
-                 .map(|j| print_json(&j.unwrap()))
+                 .map(|j| print_json(out, &j.unwrap()))
                  .for_each(drop)
         },
         QueryCmd::MultiCmd(cmds) => {
@@ -307,27 +280,30 @@ fn streaming_eval(mut json_iter: impl Iterator<Item = Value>, query: QueryCmd) -
                     .map(|json| apply_consecutive_filters(json, cmds[1..].to_vec()))
                     .filter(|(jv, _)| jv.is_some())
                     .map(|(jv, cmds)| {
-                        let jv = jv.unwrap();
-                        //println!("jv={:?}, cmds={:?}", jv, cmds);
-                        if cmds.len() > 0 {
-                            eval_and_print(jv, QueryCmd::MultiCmd(cmds[1..].to_vec()))
-                        } else {
-                            print_json(&jv)
+                        if let Some(jv) = jv {
+                            //println!("jv={:?}, cmds={:?}", jv, cmds);
+                            if cmds.len() > 0 {
+                                eval_and_print(out, jv, QueryCmd::MultiCmd(cmds[1..].to_vec()))
+                            } else {
+                                print_json(out, &jv)
+                            }
                         }
+
                     })
                     .collect()
                 },
                 QueryCmd::FilterCmd(_, _, _)=>  {
-                    println!("HERE");
+                        println!("HERE");
                         json_iter
                         .map(|json| apply_consecutive_filters(json, cmds.to_vec()))
                         .filter(|(jv, _)| jv.is_some())
                         .map(|(jv, cmds)| {
-                            let jv = jv.unwrap();
-                            if cmds.len() > 0 {
-                                eval_and_print(jv, QueryCmd::MultiCmd(cmds))
-                            } else {
-                                print_json(&jv)
+                            if let Some(jv) = jv {
+                                if cmds.len() > 0 {
+                                    eval_and_print(out, jv, QueryCmd::MultiCmd(cmds))
+                                } else {
+                                    print_json(out, &jv)
+                                }
                             }
                         })
                         .collect()
@@ -346,12 +322,28 @@ fn streaming_eval(mut json_iter: impl Iterator<Item = Value>, query: QueryCmd) -
         },
         query => {
             json_iter.map(|jv|
-                eval_and_print(jv, query.clone())).collect()
+                eval_and_print(out, jv, query.clone())).collect()
         }
     }
 
     Ok(())
 
+}
+
+fn eval_and_print( out: &mut dyn io::Write, json: Value, query: QueryCmd) {
+    let res_json = eval(json, query);
+    print_json(out, &res_json)
+
+}
+
+fn print_json(out: &mut dyn io::Write, val: &Value) {
+    // TODO figure out how to consume Result from write!
+    // clearly this is not quite right, yet
+    if let Ok(s) = serde_json::to_string_pretty(val) {
+        write!(out, "{}", s);
+    } else {
+        write!(out, "{}", val.to_string());
+    }
 }
 
 pub fn eval_cmd(cmd: CmdArgs) -> Result<(), Box<dyn Error>> {
@@ -361,33 +353,86 @@ pub fn eval_cmd(cmd: CmdArgs) -> Result<(), Box<dyn Error>> {
         (None, Some(Ok(cmd))) => {
 
             let std_in = io::stdin();
-            //let reader = Box::new(std_in.lock()) as Box<BufRead>;
+            let mut std_out = &io::stdout();
             let rdr = std_in.lock();
             let json_iter  = Deserializer::from_reader(rdr).into_iter::<Value>().map(|v|v.unwrap());
-            streaming_eval(json_iter, cmd)?;
+            streaming_eval(&mut std_out, json_iter, cmd)?;
             ()
         }
         (Some(input_file), Some(Ok(cmd))) => {
             let file = File::open(input_file)?;
             let json_iter  = Deserializer::from_reader(BufReader::new(file)).into_iter::<Value>().map(|v|v.unwrap());
-
-            streaming_eval(json_iter, cmd)?;
+            let mut std_out = &io::stdout();
+            streaming_eval(&mut std_out, json_iter, cmd)?;
             ()
         },
         (None, None) => {
             let stdin = io::stdin();
-            Deserializer::from_reader(stdin.lock()).into_iter::<Value>().map(|jv| print_json(&jv.unwrap())).for_each(drop);
+            let mut std_out = &io::stdout();
+            Deserializer::from_reader(stdin.lock())
+                 .into_iter::<Value>()
+                 .map(|jv| print_json(&mut std_out, &jv.unwrap())).for_each(drop);
             ()
         }
         (Some(input_file), None) => {
             let file = File::open(input_file)?;
+            let mut std_out = &io::stdout();
             Deserializer::from_reader(BufReader::new(file))
                 .into_iter::<Value>()
-                .map(|jv| print_json(&(jv.unwrap())))
+                .map(|jv| print_json(&mut std_out, &jv.unwrap()))
                 .for_each(drop);
             ()
         }
 
     };
     Ok(())
+}
+
+
+#[cfg(test)]
+mod eval_test {
+    use super::*;
+    use serde_json::{Result, Value};
+    use std::io::Write;
+
+    fn sample_json(i: i32) -> Value {
+        json!({  "name": "John Doe", "Revenue": 3223.0, "Collections": 10 + i, "age": 3 + i})
+    }
+
+    #[test]
+    fn evel_cmd_test() {
+        let query_cmd = "[23..100] | age > 18 | { N := name; Rv := Revenue; C := Collections} | Rv > 1500.5 | C > 50";
+        let json_iter = (1..100).map(|i| sample_json(i));
+
+        let buffer = Vec::new();
+        let mut out = io::LineWriter::new(buffer);
+
+
+        let parse_res = parse_cmd(&query_cmd.to_string());
+        let cmd = parse_res.expect("parse_cmd should not fail");
+        streaming_eval(&mut out, json_iter, cmd).expect("streaming_eval shouldn't throw errors");
+
+        out.flush().expect("Flushing out buffer should work");
+        let out_res = std::str::from_utf8(out.get_ref().as_slice());
+
+
+
+        assert_eq!(out_res.is_ok(), true);
+        let out_str = out_res.unwrap();
+        println!("HERE BE out_str \n {}", out_str);
+        assert_ne!(out_str, "");
+        // TODO  So if we could pass print_json as closure to streaming_eval, instead of all those buffers...
+        // we could just collect json Values here in a buffer, instead of strings!
+
+        // assert_eq!(r#" {
+        //     "C": 59,
+        //     "N": "John Doe",
+        //     "Rv": 3223.0
+        //   }{
+        //     "C": 85,
+        //     "N": "John Doe",
+        //     "Rv": 3223.0
+        //   }"#, out_str);
+    }
+
 }
