@@ -78,7 +78,7 @@ pub fn read_json_file(file: &String) -> Result<Value, Box<dyn Error>> {
 // ideally query should be an immutable ref, i.e. &QueryCmd but then we can't pattern match on both (json, query) because of Rust reasons..
 // but it would be great to solve it to avoid cloing QueryCmd on each recursive call
 // ToDo - could I use lifetimes to avoid cloning QueryCmd here?
-fn eval(json: Value, query: QueryCmd) -> Value {
+fn eval(json: Value, query: &QueryCmd) -> Value {
     match (json, query) {
         (v @ Value::Null, _) => v,
         (v @ Value::Bool(_), _) => v,
@@ -91,7 +91,7 @@ fn eval(json: Value, query: QueryCmd) -> Value {
                 let mut arr = vec![];
 
                 for i in idxs {
-                    arr.push(&vs[i]);
+                    arr.push(&vs[*i]);
                 }
                 json!(arr)
             }
@@ -114,7 +114,7 @@ fn eval(json: Value, query: QueryCmd) -> Value {
         (Value::Array(vs), cmd @ QueryCmd::KeywordAccess(_)) => {
             let mut res: Vec<Value> = Vec::new();
             for v in vs {
-                let r = eval(v, cmd.clone()); // ToDo this needs fixing this cloning
+                let r = eval(v, cmd); // ToDo this needs fixing this cloning
                 res.push(r);
             }
             json!(res)
@@ -135,7 +135,7 @@ fn eval(json: Value, query: QueryCmd) -> Value {
 
             for (prop_name, prop_access_cmd) in prop_mapping {
                 let prop_val = eval(json.clone(), prop_access_cmd); // Todo this cloning sucks! Can I do lifetimes to limit this?
-                props.insert(prop_name, prop_val);
+                props.insert(prop_name.clone(), prop_val);
             }
 
             if props.iter().all(|(_, v)| v.is_array()) {
@@ -164,7 +164,7 @@ fn eval(json: Value, query: QueryCmd) -> Value {
         (Value::Array(vs), cmd @ QueryCmd::FilterCmd(_, _, _ )) => {
             let mut res: Vec<Value> = Vec::new();
             for v in vs {
-                if let Some(r) = apply_filter(v,cmd.clone()) {  // ToDo this needs fixing this cloning
+                if let Some(r) = apply_filter(v, &cmd) {  // ToDo this needs fixing this cloning
                     res.push(r);
                 }
 
@@ -172,7 +172,7 @@ fn eval(json: Value, query: QueryCmd) -> Value {
             json!(res)
         }
         (json, f @ QueryCmd::FilterCmd(_, _, _)) => {
-            apply_filter(json, f).unwrap_or(json!("")) // TODO handle Option properly, when eval can become a -> Option<Value>
+            apply_filter(json, &f).unwrap_or(json!("")) // TODO handle Option properly, when eval can become a -> Option<Value>
         }
         (json, QueryCmd::MultiCmd(cmds)) => {
             let mut val = json;
@@ -185,16 +185,16 @@ fn eval(json: Value, query: QueryCmd) -> Value {
     }
 }
 
-fn apply_filter(candidate:Value, filter_cmd: QueryCmd) -> Option<Value> {
+fn apply_filter(candidate:Value, filter_cmd: &QueryCmd) -> Option<Value> {
     if let QueryCmd::FilterCmd(cmd, op, value) = filter_cmd {
-        match eval(candidate.clone(), *cmd.clone()) {
+        match eval(candidate.clone(), cmd) {
             Number(n) if op == "=" &&  n == value.parse().unwrap() => Some(json!(candidate)),
             // TODO seems like a classic case of multiple dispatch, extract into separate function, maybe in a trait?
             Number(n) if op == ">" &&  n.is_i64() && n.as_i64().unwrap() > value.parse().unwrap() => Some(json!(candidate)),
             Number(n) if op == ">" &&  n.is_f64() && n.as_f64().unwrap() > value.parse().unwrap() => Some(json!(candidate)),
             Number(n) if op == "<" &&  n.is_i64() && n.as_i64().unwrap() < value.parse().unwrap() => Some(json!(candidate)),
             Number(n) if op == "<" &&  n.is_f64() && n.as_f64().unwrap() < value.parse().unwrap() => Some(json!(candidate)),
-            serde_json::Value::String(s) if s == value => Some(json!(candidate)),
+            serde_json::Value::String(s) if s == *value => Some(json!(candidate)),
             _ => None
         }
     } else {
@@ -215,9 +215,9 @@ fn can_apply_consecutive(cmd: &QueryCmd) -> bool {
 
 fn apply_cmd(v: Value, cmd: &QueryCmd) -> Option<Value> {
     match cmd {
-        QueryCmd::FilterCmd(_, _, _) => apply_filter(v, cmd.clone()),
+        QueryCmd::FilterCmd(_, _, _) => apply_filter(v, cmd),
         QueryCmd::KeywordAccess(_) => {
-            let r = eval(v, cmd.clone());
+            let r = eval(v, cmd);
             if r == json!("") {
                 None
             } else {
@@ -225,7 +225,7 @@ fn apply_cmd(v: Value, cmd: &QueryCmd) -> Option<Value> {
             }
         },
         QueryCmd::TransformIntoObject(_) => {
-            let r = eval(v, cmd.clone());
+            let r = eval(v, cmd);
             if r == json!("") {
                 None
             } else {
@@ -260,48 +260,47 @@ fn streaming_eval(mut json_iter: impl Iterator<Item = Value>, query: QueryCmd, m
                         .map(|j| write_json(&j.unwrap()))
                         .collect(),
         f @ QueryCmd::FilterCmd(_, _, _) => {
-                json_iter.map(|json| apply_filter(json, f.clone()))
+                json_iter.map(|json| apply_filter(json, f))
                  .filter(|jv| jv.is_some())
                  .map(|j| write_json(&j.unwrap()))
                  .for_each(drop)
         },
-        QueryCmd::MultiCmd(cmds) => {
-            match &cmds[0] {
-                QueryCmd::ArrayIndexAccess(idx) => {
-                    println!("THERE");
-                    // TODO maybe for handliing ArrayIndexAccess we could implement the stateful iterator adapter
-                    // along the lines of Take     https://doc.rust-lang.org/src/core/iter/adapters/take.rs.html#15-18
-                    let json_iter2 = idx.iter()
-                    .map(|i| json_iter.nth(*i))
-                    .filter(|j| j.is_some())
-                    .map(|j| j.unwrap());
+        q @ QueryCmd::MultiCmd(_) => {
+            if let QueryCmd::MultiCmd(cmds) = q {
+                match &cmds[0] {
+                    QueryCmd::ArrayIndexAccess(idx) => {
 
-                    json_iter2
-                    .map(|json| apply_consecutive_filters(json, cmds[1..].to_vec()))
-                    .filter(|(jv, _)| jv.is_some())
-                    .map(|(jv, cmds)| {
-                        if let Some(jv) = jv {
-                            //println!("jv={:?}, cmds={:?}", jv, cmds);
-                            if cmds.len() > 0 {
-                                let jv = eval(jv, QueryCmd::MultiCmd(cmds[1..].to_vec()));
-                                write_json(&jv)
-                            } else {
-                                write_json(&jv)
+                        let json_iter2 = idx.iter()
+                        .map(|i| json_iter.nth(*i))
+                        .filter(|j| j.is_some())
+                        .map(|j| j.unwrap());
+                        
+                        json_iter2
+                        .map(|json| apply_consecutive_filters(json, cmds[1..].to_vec()))
+                        .filter(|(jv, _)| jv.is_some())
+                        .map(|(jv, cmds)| {
+                            if let Some(jv) = jv {
+                                //println!("jv={:?}, cmds={:?}", jv, cmds);
+                                if cmds.len() > 0 {
+                                    let jv = eval(jv, &QueryCmd::MultiCmd(cmds[1..].to_vec()));  // [1..] type indexing impl on QueryCmd::MultiCmd ???
+                                    write_json(&jv)
+                                } else {
+                                    write_json(&jv)
+                                }
                             }
-                        }
-
-                    })
-                    .collect()
-                },
-                QueryCmd::FilterCmd(_, _, _)=>  {
-                        println!("HERE");
+    
+                        })
+                        .collect()
+                    
+                    },
+                    QueryCmd::FilterCmd(_, _, _)=>  { 
                         json_iter
                         .map(|json| apply_consecutive_filters(json, cmds.to_vec()))
                         .filter(|(jv, _)| jv.is_some())
                         .map(|(jv, cmds)| {
                             if let Some(jv) = jv {
                                 if cmds.len() > 0 {
-                                    let jv = eval(jv, QueryCmd::MultiCmd(cmds));
+                                    let jv = eval(jv, q);
                                     write_json(&jv)
                                 } else {
                                     write_json(&jv)
@@ -309,23 +308,26 @@ fn streaming_eval(mut json_iter: impl Iterator<Item = Value>, query: QueryCmd, m
                             }
                         })
                         .collect()
-                },
-
-                _cmd =>  {
-                    let mut sliced_json = json_iter.collect::<Vec<Value>>();
-                    for cmd in cmds {
-                        sliced_json = sliced_json
-                        .iter()
-                        .map(|jv|  eval(jv.clone(), cmd.clone()))
-                        .collect::<Vec<Value>>();
+                        
+                    },
+    
+                    _cmd =>  {
+                        let mut sliced_json = json_iter.collect::<Vec<Value>>();
+                        for cmd in cmds {
+                            sliced_json = sliced_json
+                            .iter()
+                            .map(|jv|  eval(jv.clone(), cmd))
+                            .collect::<Vec<Value>>();
+                        }
                     }
-                }
+                    
+                }          
             }
         },
         query => {
             json_iter.map(|jv|
                 { 
-                    let jv = eval(jv, query.clone());
+                    let jv = eval(jv, query);
                     write_json(&jv)
                 }).collect()
         }
@@ -399,8 +401,7 @@ pub fn eval_cmd(cmd: CmdArgs) -> Result<(), Box<dyn Error>> {
 #[cfg(test)]
 mod eval_test {
     use super::*;
-    use serde_json::{Result, Value};
-    use std::io::Write;
+    use serde_json::Value;
 
     fn sample_json(i: i32) -> Value {
         json!({ "i": i, "name": "John Doe", "Revenue": 3223.0, "Collections": 10 + i, "age": 3 + i})
