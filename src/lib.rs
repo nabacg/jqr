@@ -403,12 +403,12 @@ mod eval_test {
     use std::io::Write;
 
     fn sample_json(i: i32) -> Value {
-        json!({  "name": "John Doe", "Revenue": 3223.0, "Collections": 10 + i, "age": 3 + i})
+        json!({ "i": i, "name": "John Doe", "Revenue": 3223.0, "Collections": 10 + i, "age": 3 + i})
     }
 
     #[test]
     fn evel_cmd_test() {
-        let query_cmd = "[23..100] | age > 18 | { N := name; Rv := Revenue; C := Collections} | Rv > 1500.5 | C > 50";
+        let query_cmd = "[23..100] | age > 18 | {Idx := i; N := name; Rv := Revenue; C := Collections} | Rv > 1500.5 | C > 50";
         let json_iter = (1..100).map(|i| sample_json(i));
 
         let mut buffer: Vec<Value> = Vec::new();
@@ -426,6 +426,9 @@ mod eval_test {
          assert_eq!(first_result.get("N").expect("N should not be empty"), "John Doe");
          assert_eq!(first_result.get("Rv").expect("Rv should not be empty").as_f64().expect("Rv should by float64") > 1500.5, true);
          assert_eq!(first_result.get("C").expect("C should not be empty").as_i64().expect("C should by int64") > 50, true);
+         let value_index = first_result.get("Idx").expect("Idx should not be empty").as_i64().expect("Idx should by int64");
+         assert_eq!(23 <= value_index , true);
+         assert_eq!(value_index < 100, true);
     }
 
 }
