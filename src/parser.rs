@@ -118,9 +118,9 @@ pub fn parse(input: &str) -> Result<QueryCmd, Box<dyn Error>> {
 
     let err: Box<dyn Error> = String::from("Empty top level parse result").into();
     let expr = parsed.next().ok_or(err)?;
-    println!("parsed: {:?}\n, expr: {:?}\n, rule: {:?}", parsed, expr, expr.as_rule());
+    // println!("parsed: {:?}\n, expr: {:?}\n, rule: {:?}", parsed, expr, expr.as_rule());
     let cmd = parse_expr(expr);
-    println!("QueryCmd: {:?}", cmd);
+    // println!("QueryCmd: {:?}", cmd);
     cmd
 }
 

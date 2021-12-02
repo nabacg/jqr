@@ -391,7 +391,7 @@ mod eval_test {
     }
 
     #[test]
-    fn evel_cmd_test() {
+    fn eval_cmd_test() {
         let query_cmd = "[23..100] | age > 18 | {Idx := i; N := name; Rv := Revenue; C := Collections} | Rv > 1500.5 | C > 50";
         let json_iter = (1..100).map(|i| sample_json(i));
 
@@ -407,12 +407,45 @@ mod eval_test {
          
          //TODO should really clean this up
          let first_result = buffer[0].as_object().expect("should be json object");
+        //  assert_eq!(buffer[0], sample_json(1));
          assert_eq!(first_result.get("N").expect("N should not be empty"), "John Doe");
          assert_eq!(first_result.get("Rv").expect("Rv should not be empty").as_f64().expect("Rv should by float64") > 1500.5, true);
          assert_eq!(first_result.get("C").expect("C should not be empty").as_i64().expect("C should by int64") > 50, true);
          let value_index = first_result.get("Idx").expect("Idx should not be empty").as_i64().expect("Idx should by int64");
          assert_eq!(23 <= value_index , true);
          assert_eq!(value_index < 100, true);
+    }
+
+    #[test]
+    fn tabel_test() {
+
+        // TODO maybe a loop over a table with 
+        // |query_cmd |  input_json | expected_json | 
+        // would be a productive way to test this?
+        let query_cmd = "[0]";
+        let json_iter = (0..1).map(|_| serde_json::from_str(r#" {
+            "i": 12,
+            "name":"John Doe",
+            "Revenue": 12
+       }"#).unwrap());
+
+        let mut buffer: Vec<Value> = Vec::new();
+        let value_collector = |jv:&Value| { buffer.push(jv.clone()); };
+
+        let parse_res = parse_cmd(&query_cmd.to_string());
+        let cmd = parse_res.expect("parse_cmd should not fail");
+        streaming_eval(json_iter, cmd, value_collector).expect("streaming_eval shouldn't throw errors");
+
+
+         let result = &buffer[0];
+
+         let expected: Value = serde_json::from_str(r#" {
+             "i": 12,
+             "name":"John Doe",
+             "Revenue": 12
+        }"#).unwrap();
+
+        assert_eq!(result, &expected);
     }
 
 }
