@@ -17,32 +17,23 @@ mod parser;
 #[derive(Debug)]
 pub struct CmdArgs {
     input_file: Option<String>,
-    query: Option<String>,
-    flag: Option<String> // this flag should be an enum actually!
+    query: Option<String>
 }
 
 impl CmdArgs {
     pub fn new(args: &[String]) -> Result<CmdArgs, String> {
         match args {
-            [_, opt, query] if opt.as_str() == "-m" => Ok(CmdArgs {
-                input_file: None,
-                query: Some(query.clone()),
-                flag: Some(opt.clone())
-            }),
             [_, input_file, query] => Ok(CmdArgs {
-                input_file: Some(input_file.clone()),
-                query: Some(query.clone()),
-                flag: None
+                input_file: Some(input_file.to_string()),
+                query: Some(query.to_string()),
             }),
             [_, query] => Ok(CmdArgs {
                 input_file: None,
-                query: Some(query.clone()),
-                flag: None
+                query: Some(query.to_string()),
             }),
             [_] => Ok(CmdArgs {
                 input_file: None,
                 query: None,
-                flag: None
             }),
             _ => {
                 return Err(format!(
@@ -57,7 +48,6 @@ impl CmdArgs {
 fn parse_cmd(cmd_str: &String) -> Result<QueryCmd, &'static str> {
     match parser::parse(&cmd_str) {
         Ok(cmd) => {
-            //   println!("Cmd={:?}", cmd); // ToDo add a --Debug flag to print it out?
             Ok(cmd)
         }
         Err(e) => {
@@ -133,7 +123,7 @@ fn eval(json: Value, query: &QueryCmd) -> Option<Value> {
 
             for (prop_name, prop_access_cmd) in prop_mapping {
                 if let Some(prop_val) = eval(json.clone(), prop_access_cmd) { // Todo this cloning sucks! Can I do lifetimes to limit this?
-                    props.insert(prop_name.clone(), prop_val);
+                    props.insert(prop_name.to_owned(), prop_val);
 
                 } 
             }
@@ -152,7 +142,7 @@ fn eval(json: Value, query: &QueryCmd) -> Option<Value> {
                 for i in 0..shortest {
                     let mut new_props: Map<String, Value> = Map::new();
                     for j in 0..names.len() {
-                        new_props.insert(names[j].clone(), vals[j][i].clone());
+                        new_props.insert(names[j].to_owned(), vals[j][i].to_owned());
                     }
                     res.push(Value::Object(new_props));
                 }
@@ -227,9 +217,8 @@ fn apply_cmd(v: Value, cmd: &QueryCmd) -> Option<Value> {
 
 fn apply_consecutive_filters(candidate:Value, cmds: Vec<QueryCmd> ) -> (Option<Value>, Vec<QueryCmd>) {
 
-    // let filter_pred = |c:QueryCmd| matches!(c, QueryCmd::FilterCmd(_, _, _));
     let mut v = Some(candidate);
-    let rest : Vec<QueryCmd> = cmds.iter().skip_while(|c| can_apply_consecutive(c)).map(|c| c.clone()).collect();
+    let rest : Vec<QueryCmd> = cmds.iter().skip_while(|c| can_apply_consecutive(c)).map(|c| c.to_owned()).collect();
     for cmd in cmds.iter().take_while(|c| can_apply_consecutive(c)) {
 
         v =  v.and_then(|j| apply_cmd(j, cmd));
@@ -302,12 +291,12 @@ fn streaming_eval(mut json_iter: impl Iterator<Item = Value>, query: QueryCmd, m
                         
                     },
     
-                    _cmd =>  {
+                    _ =>  {
                         let mut sliced_json = json_iter.collect::<Vec<Value>>();
                         for cmd in cmds {
                             sliced_json = sliced_json
-                            .iter()
-                            .map(|jv|  eval(jv.clone(), cmd))
+                            .iter()  
+                            .map(|jv|  eval(jv.to_owned(), cmd))
                             .filter(|jv| jv.is_some())
                             .map(|jv| jv.unwrap())
                             .collect::<Vec<Value>>();
@@ -396,7 +385,7 @@ mod eval_test {
         let json_iter = (1..100).map(|i| sample_json(i));
 
         let mut buffer: Vec<Value> = Vec::new();
-        let value_collector = |jv:&Value| { buffer.push(jv.clone()); };
+        let value_collector = |jv:&Value| { buffer.push(jv.to_owned()); };
 
         let parse_res = parse_cmd(&query_cmd.to_string());
         let cmd = parse_res.expect("parse_cmd should not fail");
@@ -430,7 +419,7 @@ mod eval_test {
        }"#).unwrap());
 
         let mut buffer: Vec<Value> = Vec::new();
-        let value_collector = |jv:&Value| { buffer.push(jv.clone()); };
+        let value_collector = |jv:&Value| { buffer.push(jv.to_owned()); };
 
         let parse_res = parse_cmd(&query_cmd.to_string());
         let cmd = parse_res.expect("parse_cmd should not fail");
