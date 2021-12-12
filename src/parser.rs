@@ -145,7 +145,8 @@ mod parser_test {
                    QueryCmd::KeywordAccess(vec!["a".to_string(), "b".to_string(), "c".to_string()]));
 
         assert_eq!(run_parse("[0]"), QueryCmd::ArrayIndexAccess(vec![0]));
-        assert_eq!(parse("[]").err().is_some(), true);
+        assert_eq!(run_parse("[]"), QueryCmd::ArrayIndexAccess(vec![]));
+       // assert_eq!(parse("[]").err().is_some(), true);
         assert_eq!(run_parse("[1,3, 5]"), QueryCmd::ArrayIndexAccess(vec![1,3,5]));
         assert_eq!(run_parse("[11..15]"), QueryCmd::ArrayIndexAccess(vec![11, 12, 13, 14]));
         assert_eq!(run_parse("[15..11]"), QueryCmd::ArrayIndexAccess(vec![]));

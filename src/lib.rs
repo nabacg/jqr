@@ -3,12 +3,12 @@ extern crate pest;
 #[macro_use]
 extern crate pest_derive;
 
-use serde_json::Value::Number;
 use parser::QueryCmd;
-use serde_json::{json};
+use serde_json::json;
 use serde_json::map::Map;
-use serde_json::Value;
 use serde_json::Deserializer;
+use serde_json::Value;
+use serde_json::Value::Number;
 use std::error::Error;
 use std::fs::File;
 use std::io::{self, BufReader};
@@ -17,7 +17,7 @@ mod parser;
 #[derive(Debug)]
 pub struct CmdArgs {
     input_file: Option<String>,
-    query: Option<String>
+    query: Option<String>,
 }
 
 impl CmdArgs {
@@ -26,6 +26,10 @@ impl CmdArgs {
             [_, input_file, query] => Ok(CmdArgs {
                 input_file: Some(input_file.to_string()),
                 query: Some(query.to_string()),
+            }),
+            [_, query] if query == "" => Ok(CmdArgs {
+                input_file: None,
+                query: None,
             }),
             [_, query] => Ok(CmdArgs {
                 input_file: None,
@@ -47,9 +51,7 @@ impl CmdArgs {
 
 fn parse_cmd(cmd_str: &String) -> Result<QueryCmd, &'static str> {
     match parser::parse(&cmd_str) {
-        Ok(cmd) => {
-            Ok(cmd)
-        }
+        Ok(cmd) => Ok(cmd),
         Err(e) => {
             eprintln!("ERROR parsing cmd={:?} error={:?}", cmd_str, e);
             Err("Failing now")
@@ -122,10 +124,10 @@ fn eval(json: Value, query: &QueryCmd) -> Option<Value> {
             let mut props: Map<String, Value> = Map::new();
 
             for (prop_name, prop_access_cmd) in prop_mapping {
-                if let Some(prop_val) = eval(json.clone(), prop_access_cmd) { // Todo this cloning sucks! Can I do lifetimes to limit this?
+                if let Some(prop_val) = eval(json.clone(), prop_access_cmd) {
+                    // Todo this cloning sucks! Can I do lifetimes to limit this?
                     props.insert(prop_name.to_owned(), prop_val);
-
-                } 
+                }
             }
 
             if props.iter().all(|(_, v)| v.is_array()) {
@@ -151,24 +153,22 @@ fn eval(json: Value, query: &QueryCmd) -> Option<Value> {
                 Some(Value::Object(props))
             }
         }
-        (Value::Array(vs), cmd @ QueryCmd::FilterCmd(_, _, _ )) => {
+        (Value::Array(vs), cmd @ QueryCmd::FilterCmd(_, _, _)) => {
             let mut res: Vec<Value> = Vec::new();
             for v in vs {
-                if let Some(r) = apply_filter(v, &cmd) {  // ToDo this needs fixing this cloning
+                if let Some(r) = apply_filter(v, &cmd) {
+                    // ToDo this needs fixing this cloning
                     res.push(r);
                 }
-
             }
             Some(json!(res))
         }
-        (json, f @ QueryCmd::FilterCmd(_, _, _)) => {
-            apply_filter(json, &f) 
-        }
+        (json, f @ QueryCmd::FilterCmd(_, _, _)) => apply_filter(json, &f),
         (json, QueryCmd::MultiCmd(cmds)) => {
             let mut val = Some(json);
             for cmd in cmds {
-                // TODO there is got to be a nicer way to do this, flat map over those cmds 
-                if let Some(v) = val {  
+                // TODO there is got to be a nicer way to do this, flat map over those cmds
+                if let Some(v) = val {
                     val = eval(v, cmd);
                 }
             }
@@ -200,8 +200,8 @@ fn can_apply_consecutive(cmd: &QueryCmd) -> bool {
         QueryCmd::FilterCmd(_, _, _) => true,
         QueryCmd::KeywordAccess(_) => true,
         QueryCmd::TransformIntoObject(_) => true,
-// everything else either needs to accumlate state (ArrayIndexAccess) or terminates computation (keys, Count, listvals)
-        _ => false
+        // everything else either needs to accumlate state (ArrayIndexAccess) or terminates computation (keys, Count, listvals)
+        _ => false,
     }
 }
 
@@ -210,70 +210,76 @@ fn apply_cmd(v: Value, cmd: &QueryCmd) -> Option<Value> {
         QueryCmd::FilterCmd(_, _, _) => apply_filter(v, cmd),
         QueryCmd::KeywordAccess(_) => eval(v, cmd),
         QueryCmd::TransformIntoObject(_) => eval(v, cmd),
-        _ => None
+        _ => None,
     }
 }
 
-
-fn apply_consecutive_filters(candidate:Value, cmds: Vec<QueryCmd> ) -> (Option<Value>, Vec<QueryCmd>) {
-
+fn apply_consecutive_filters(
+    candidate: Value,
+    cmds: Vec<QueryCmd>,
+) -> (Option<Value>, Vec<QueryCmd>) {
     let mut v = Some(candidate);
-    let rest : Vec<QueryCmd> = cmds.iter().skip_while(|c| can_apply_consecutive(c)).map(|c| c.to_owned()).collect();
+    let rest: Vec<QueryCmd> = cmds
+        .iter()
+        .skip_while(|c| can_apply_consecutive(c))
+        .map(|c| c.to_owned())
+        .collect();
     for cmd in cmds.iter().take_while(|c| can_apply_consecutive(c)) {
-
-        v =  v.and_then(|j| apply_cmd(j, cmd));
+        v = v.and_then(|j| apply_cmd(j, cmd));
     }
     (v, rest)
-
 }
 
 //out: &mut dyn io::Write,
 //https://stackoverflow.com/a/47606476
-fn streaming_eval(mut json_iter: impl Iterator<Item = Value>, query: QueryCmd, mut write_json: impl FnMut( &Value )) -> Result<(), Box<dyn Error>> {
-     match &query {
-        QueryCmd::ArrayIndexAccess(idx) => idx.iter()
-                        .map(|i| json_iter.nth(*i))
-                        .filter(|j| j.is_some())
-                        .map(|j| write_json(&j.unwrap()))
-                        .collect(),
-        f @ QueryCmd::FilterCmd(_, _, _) => {
-                json_iter.map(|json| apply_filter(json, f))
-                 .filter(|jv| jv.is_some())
-                 .map(|j| write_json(&j.unwrap()))
-                 .for_each(drop)
-        },
+fn streaming_eval(
+    mut json_iter: impl Iterator<Item = Value>,
+    query: QueryCmd,
+    mut write_json: impl FnMut(&Value),
+) -> Result<(), Box<dyn Error>> {
+    match &query {
+        QueryCmd::ArrayIndexAccess(idx) => idx
+            .iter()
+            .map(|i| json_iter.nth(*i))
+            .filter(|j| j.is_some())
+            .map(|j| write_json(&j.unwrap()))
+            .collect(),
+        f @ QueryCmd::FilterCmd(_, _, _) => json_iter
+            .map(|json| apply_filter(json, f))
+            .filter(|jv| jv.is_some())
+            .map(|j| write_json(&j.unwrap()))
+            .for_each(drop),
         q @ QueryCmd::MultiCmd(_) => {
             if let QueryCmd::MultiCmd(cmds) = q {
                 match &cmds[0] {
                     QueryCmd::ArrayIndexAccess(idx) => {
+                        let json_iter2 = idx
+                            .iter()
+                            .map(|i| json_iter.nth(*i))
+                            .filter(|j| j.is_some())
+                            .map(|j| j.unwrap());
 
-                        let json_iter2 = idx.iter()
-                        .map(|i| json_iter.nth(*i))
-                        .filter(|j| j.is_some())
-                        .map(|j| j.unwrap());
-                        
                         json_iter2
-                        .map(|json| apply_consecutive_filters(json, cmds[1..].to_vec()))
-                        .filter(|(jv, _)| jv.is_some())
-                        .map(|(jv, cmds)| {
-                            if let Some(jv) = jv {
-                                //println!("jv={:?}, cmds={:?}", jv, cmds);
-                                if cmds.len() > 0 {
-                                    if let Some(jv) = eval(jv, &QueryCmd::MultiCmd(cmds[1..].to_vec())) { // [1..] type indexing impl on QueryCmd::MultiCmd ???
+                            .map(|json| apply_consecutive_filters(json, cmds[1..].to_vec()))
+                            .filter(|(jv, _)| jv.is_some())
+                            .map(|(jv, cmds)| {
+                                if let Some(jv) = jv {
+                                    //println!("jv={:?}, cmds={:?}", jv, cmds);
+                                    if cmds.len() > 0 {
+                                        if let Some(jv) =
+                                            eval(jv, &QueryCmd::MultiCmd(cmds[1..].to_vec()))
+                                        {
+                                            // [1..] type indexing impl on QueryCmd::MultiCmd ???
+                                            write_json(&jv)
+                                        }
+                                    } else {
                                         write_json(&jv)
-
-                                    }  
-                                } else {
-                                    write_json(&jv)
+                                    }
                                 }
-                            }
-    
-                        })
-                        .collect()
-                    
-                    },
-                    QueryCmd::FilterCmd(_, _, _)=>  { 
-                        json_iter
+                            })
+                            .collect()
+                    }
+                    QueryCmd::FilterCmd(_, _, _) => json_iter
                         .map(|json| apply_consecutive_filters(json, cmds.to_vec()))
                         .filter(|(jv, _)| jv.is_some())
                         .map(|(jv, cmds)| {
@@ -287,37 +293,32 @@ fn streaming_eval(mut json_iter: impl Iterator<Item = Value>, query: QueryCmd, m
                                 }
                             }
                         })
-                        .collect()
-                        
-                    },
-    
-                    _ =>  {
+                        .collect(),
+
+                    _ => {
                         let mut sliced_json = json_iter.collect::<Vec<Value>>();
                         for cmd in cmds {
                             sliced_json = sliced_json
-                            .iter()  
-                            .map(|jv|  eval(jv.to_owned(), cmd))
-                            .filter(|jv| jv.is_some())
-                            .map(|jv| jv.unwrap())
-                            .collect::<Vec<Value>>();
+                                .iter()
+                                .map(|jv| eval(jv.to_owned(), cmd))
+                                .filter(|jv| jv.is_some())
+                                .map(|jv| jv.unwrap())
+                                .collect::<Vec<Value>>();
                         }
                     }
-                    
-                }          
+                }
             }
-        },
-        q => {
-            json_iter.map(|jv|
-                { 
-                    if let Some(jv) = eval(jv, q) {
-                        write_json(&jv)
-                    }
-                }).collect()
         }
+        q => json_iter
+            .map(|jv| {
+                if let Some(jv) = eval(jv, q) {
+                    write_json(&jv)
+                }
+            })
+            .collect(),
     }
 
     Ok(())
-
 }
 
 fn print_json(val: &Value) {
@@ -331,29 +332,31 @@ fn print_json(val: &Value) {
 }
 
 pub fn eval_cmd(cmd: CmdArgs) -> Result<(), Box<dyn Error>> {
-
     match (&cmd.input_file, cmd.query.map(|query| parse_cmd(&query))) {
         (_, Some(Err(msg))) => println!("Failed at cmd parsing with error= {}", msg),
         (None, Some(Ok(cmd))) => {
-
             let std_in = io::stdin();
             let rdr = std_in.lock();
-            let json_iter  = Deserializer::from_reader(rdr).into_iter::<Value>().map(|v|v.unwrap());
+            let json_iter = Deserializer::from_reader(rdr)
+                .into_iter::<Value>()
+                .map(|v| v.unwrap());
             streaming_eval(json_iter, cmd, print_json)?;
             ()
         }
         (Some(input_file), Some(Ok(cmd))) => {
             let file = File::open(input_file)?;
-            let json_iter  = Deserializer::from_reader(BufReader::new(file)).into_iter::<Value>().map(|v|v.unwrap());
+            let json_iter = Deserializer::from_reader(BufReader::new(file))
+                .into_iter::<Value>()
+                .map(|v| v.unwrap());
             streaming_eval(json_iter, cmd, print_json)?;
             ()
-        },
+        }
         (None, None) => {
             let stdin = io::stdin();
             Deserializer::from_reader(stdin.lock())
-                 .into_iter::<Value>()
-                 .map(|jv| print_json(&jv.unwrap()))
-                 .for_each(drop);
+                .into_iter::<Value>()
+                .map(|jv| print_json(&jv.unwrap()))
+                .for_each(drop);
             ()
         }
         (Some(input_file), None) => {
@@ -364,11 +367,9 @@ pub fn eval_cmd(cmd: CmdArgs) -> Result<(), Box<dyn Error>> {
                 .for_each(drop);
             ()
         }
-
     };
     Ok(())
 }
-
 
 #[cfg(test)]
 mod eval_test {
@@ -385,56 +386,84 @@ mod eval_test {
         let json_iter = (1..100).map(|i| sample_json(i));
 
         let mut buffer: Vec<Value> = Vec::new();
-        let value_collector = |jv:&Value| { buffer.push(jv.to_owned()); };
+        let value_collector = |jv: &Value| {
+            buffer.push(jv.to_owned());
+        };
 
         let parse_res = parse_cmd(&query_cmd.to_string());
         let cmd = parse_res.expect("parse_cmd should not fail");
-        streaming_eval(json_iter, cmd, value_collector).expect("streaming_eval shouldn't throw errors");
+        streaming_eval(json_iter, cmd, value_collector)
+            .expect("streaming_eval shouldn't throw errors");
 
-         assert_ne!(buffer.len(), 0);
-         assert_eq!(buffer.len(), 2);
-         
-         //TODO should really clean this up
-         let first_result = buffer[0].as_object().expect("should be json object");
+        assert_ne!(buffer.len(), 0);
+        assert_eq!(buffer.len(), 2);
+
+        //TODO should really clean this up
+        let first_result = buffer[0].as_object().expect("should be json object");
         //  assert_eq!(buffer[0], sample_json(1));
-         assert_eq!(first_result.get("N").expect("N should not be empty"), "John Doe");
-         assert_eq!(first_result.get("Rv").expect("Rv should not be empty").as_f64().expect("Rv should by float64") > 1500.5, true);
-         assert_eq!(first_result.get("C").expect("C should not be empty").as_i64().expect("C should by int64") > 50, true);
-         let value_index = first_result.get("Idx").expect("Idx should not be empty").as_i64().expect("Idx should by int64");
-         assert_eq!(23 <= value_index , true);
-         assert_eq!(value_index < 100, true);
+        assert_eq!(
+            first_result.get("N").expect("N should not be empty"),
+            "John Doe"
+        );
+        assert_eq!(
+            first_result
+                .get("Rv")
+                .expect("Rv should not be empty")
+                .as_f64()
+                .expect("Rv should by float64")
+                > 1500.5,
+            true
+        );
+        assert_eq!(
+            first_result
+                .get("C")
+                .expect("C should not be empty")
+                .as_i64()
+                .expect("C should by int64")
+                > 50,
+            true
+        );
+        let value_index = first_result
+            .get("Idx")
+            .expect("Idx should not be empty")
+            .as_i64()
+            .expect("Idx should by int64");
+        assert_eq!(23 <= value_index, true);
+        assert_eq!(value_index < 100, true);
     }
 
     #[test]
-    fn tabel_test() {
+    fn truth_table_test() {
+        let json = r#" {
+        "i": 12,
+        "name":"John Doe",
+        "Revenue": 12}"#;
 
-        // TODO maybe a loop over a table with 
-        // |query_cmd |  input_json | expected_json | 
-        // would be a productive way to test this?
-        let query_cmd = "[0]";
-        let json_iter = (0..1).map(|_| serde_json::from_str(r#" {
-            "i": 12,
-            "name":"John Doe",
-            "Revenue": 12
-       }"#).unwrap());
+        let truth_table = vec![
+            ("[0]", json, 1, json),
+            ("[9]", json, 10, json),
+            ("[]", json, 1, ""),
+            // ("", json, 1, ""),
+            ("[22]", json, 10, ""),
+        ];
 
-        let mut buffer: Vec<Value> = Vec::new();
-        let value_collector = |jv:&Value| { buffer.push(jv.to_owned()); };
+        let empty_json = json!("");
+        for (cmd, input, input_size, expected) in truth_table {
+            let json_iter = (0..input_size).map(|_| serde_json::from_str(input).unwrap());
 
-        let parse_res = parse_cmd(&query_cmd.to_string());
-        let cmd = parse_res.expect("parse_cmd should not fail");
-        streaming_eval(json_iter, cmd, value_collector).expect("streaming_eval shouldn't throw errors");
+            let mut buffer: Vec<Value> = Vec::new();
+            let value_collector = |jv: &Value| {
+                buffer.push(jv.to_owned());
+            };
+            let parse_res = parse_cmd(&cmd.to_string());
+            let cmd = parse_res.expect("parse_cmd should not fail");
+            streaming_eval(json_iter, cmd, value_collector)
+                .expect("streaming_eval shouldn't throw errors");
 
+            let result = buffer.get(0).unwrap_or(&empty_json);
 
-         let result = &buffer[0];
-
-         let expected: Value = serde_json::from_str(r#" {
-             "i": 12,
-             "name":"John Doe",
-             "Revenue": 12
-        }"#).unwrap();
-
-        assert_eq!(result, &expected);
+            let expected: Value = serde_json::from_str(expected).unwrap_or(json!(""));
+            assert_eq!(result, &expected, "Expected: {}, got: {}", result, expected);
+        }
     }
-
 }

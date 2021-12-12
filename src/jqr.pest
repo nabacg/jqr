@@ -2,7 +2,7 @@ WHITESPACE = _{ " " }
 
 arrayIndex = @{ ASCII_DIGIT+ }
 
-indexAccess = { "[" ~ arrayIndex ~ ( "," ~ arrayIndex )* ~ "]" }
+indexAccess = { "[" ~ arrayIndex? ~ ( "," ~ arrayIndex )* ~ "]" }
 
 rangeIndexAccess = { "[" ~ arrayIndex ~ ".." ~ arrayIndex ~ "]" }
 
