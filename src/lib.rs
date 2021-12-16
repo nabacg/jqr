@@ -12,6 +12,7 @@ use serde_json::Value::Number;
 use std::error::Error;
 use std::fs::File;
 use std::io::{self, BufReader};
+use std::collections::HashSet;
 mod parser;
 
 #[derive(Debug)]
@@ -125,7 +126,6 @@ fn eval(json: Value, query: &QueryCmd) -> Option<Value> {
 
             for (prop_name, prop_access_cmd) in prop_mapping {
                 if let Some(prop_val) = eval(json.clone(), prop_access_cmd) {
-                    // Todo this cloning sucks! Can I do lifetimes to limit this?
                     props.insert(prop_name.to_owned(), prop_val);
                 }
             }
@@ -233,17 +233,20 @@ fn apply_consecutive_filters(
 //out: &mut dyn io::Write,
 //https://stackoverflow.com/a/47606476
 fn streaming_eval(
-    mut json_iter: impl Iterator<Item = Value>,
+    json_iter: impl Iterator<Item = Value>,
     query: QueryCmd,
     mut write_json: impl FnMut(&Value),
 ) -> Result<(), Box<dyn Error>> {
     match &query {
-        QueryCmd::ArrayIndexAccess(idx) => idx
-            .iter()
-            .map(|i| json_iter.nth(*i))
+        QueryCmd::ArrayIndexAccess(idx) => { 
+            let idx: HashSet<&usize> = idx.into_iter().collect();
+            json_iter
+            .enumerate()
+            .map(|(i, jv)| idx.get(&i).map(|_| jv) )          
             .filter(|j| j.is_some())
             .map(|j| write_json(&j.unwrap()))
-            .collect(),
+            .collect()
+        }
         f @ QueryCmd::FilterCmd(_, _, _) => json_iter
             .map(|json| apply_filter(json, f))
             .filter(|jv| jv.is_some())
@@ -253,31 +256,31 @@ fn streaming_eval(
             if let QueryCmd::MultiCmd(cmds) = q {
                 match &cmds[0] {
                     QueryCmd::ArrayIndexAccess(idx) => {
-                        let json_iter2 = idx
-                            .iter()
-                            .map(|i| json_iter.nth(*i))
-                            .filter(|j| j.is_some())
-                            .map(|j| j.unwrap());
-
-                        json_iter2
-                            .map(|json| apply_consecutive_filters(json, cmds[1..].to_vec()))
-                            .filter(|(jv, _)| jv.is_some())
-                            .map(|(jv, cmds)| {
-                                if let Some(jv) = jv {
-                                    //println!("jv={:?}, cmds={:?}", jv, cmds);
-                                    if cmds.len() > 0 {
-                                        if let Some(jv) =
-                                            eval(jv, &QueryCmd::MultiCmd(cmds[1..].to_vec()))
-                                        {
-                                            // [1..] type indexing impl on QueryCmd::MultiCmd ???
-                                            write_json(&jv)
-                                        }
-                                    } else {
+                        // println!("json_iter.coount: {}", json_iter.collect::<Vec<Value>>().len());
+                        let idx: HashSet<&usize> = idx.into_iter().collect();                
+                        json_iter
+                        .enumerate()
+                        .map(|(i, jv)| idx.get(&i).map(|_| jv) )   
+                        .filter(|j| j.is_some())
+                        .map(|j| j.unwrap())
+                        .map(|json| apply_consecutive_filters(json, cmds[1..].to_vec()))
+                        .filter(|(jv, _)| jv.is_some())
+                        .map(|(jv, cmds)| {
+                            if let Some(jv) = jv {
+                                // println!("jv={:?}, cmds={:?}", jv, cmds);
+                                if cmds.len() > 0 {
+                                    if let Some(jv) =
+                                        eval(jv, &QueryCmd::MultiCmd(cmds))
+                                    {
+                                        // [1..] type indexing impl on QueryCmd::MultiCmd ???
                                         write_json(&jv)
                                     }
+                                } else {
+                                    write_json(&jv)
                                 }
-                            })
-                            .collect()
+                            }
+                        })
+                        .collect()
                     }
                     QueryCmd::FilterCmd(_, _, _) => json_iter
                         .map(|json| apply_consecutive_filters(json, cmds.to_vec()))
@@ -382,7 +385,7 @@ mod eval_test {
 
     #[test]
     fn eval_cmd_test() {
-        let query_cmd = "[23..100] | age > 18 | {Idx := i; N := name; Rv := Revenue; C := Collections} | Rv > 1500.5 | C > 50";
+        let query_cmd = "[23..100] | age > 18 | {Idx := i; N := name; Rv := Revenue; C := Collections} | Rv > 1500.5 | C > 50 | Idx < 50";
         let json_iter = (1..100).map(|i| sample_json(i));
 
         let mut buffer: Vec<Value> = Vec::new();
@@ -396,7 +399,7 @@ mod eval_test {
             .expect("streaming_eval shouldn't throw errors");
 
         assert_ne!(buffer.len(), 0);
-        assert_eq!(buffer.len(), 2);
+        assert_eq!(buffer.len(), 9); // because  C > 50 | Idx < 50
 
         //TODO should really clean this up
         let first_result = buffer[0].as_object().expect("should be json object");
@@ -463,7 +466,86 @@ mod eval_test {
             let result = buffer.get(0).unwrap_or(&empty_json);
 
             let expected: Value = serde_json::from_str(expected).unwrap_or(json!(""));
-            assert_eq!(result, &expected, "Expected: {}, got: {}", result, expected);
+            assert_eq!(result, &expected, "Expected: {}, got: {}", expected, result);
         }
+    }
+
+
+
+    #[test]
+    fn multi_cmd_index_slicing_test() {
+
+        //TODO write a test to handle this, a streaming index slicing and then .count!
+       // let cmd = "[100..300] | name | .count";
+        let cmd = "[100..300] | name ";
+        let input_size = 300;
+        let expected = 200;
+      
+        let json_iter = (0..input_size).map(|i| sample_json(i));
+
+
+        let mut buffer: Vec<Value> = Vec::new();
+        let value_collector = |jv: &Value| {
+            buffer.push(jv.to_owned());
+        };
+        let parse_res = parse_cmd(&cmd.to_string());
+        let cmd = parse_res.expect("parse_cmd should not fail");
+        streaming_eval(json_iter, cmd, value_collector)
+            .expect("streaming_eval shouldn't throw errors");
+
+        let result = buffer.len();
+
+
+        assert_eq!(result, expected, "Expected: {}, got: {}",  expected, result);
+    }
+
+    #[test]
+    fn multi_cmd_streaming_with_count_after_test() {
+
+        // TODO handle this, a streaming index slicing and then .count! This currently doesn't work
+        let cmd = "[100..300] | name | .count";
+        let input_size = 300;
+        let expected = json!("200");
+      
+        let json_iter = (0..input_size).map(|i| sample_json(i));
+
+
+        let mut buffer: Vec<Value> = Vec::new();
+        let value_collector = |jv: &Value| {
+            buffer.push(jv.to_owned());
+        };
+        let parse_res = parse_cmd(&cmd.to_string());
+        let cmd = parse_res.expect("parse_cmd should not fail");
+        streaming_eval(json_iter, cmd, value_collector)
+            .expect("streaming_eval shouldn't throw errors");
+
+        let empty_json = &json!("");
+        let result = buffer.get(0).unwrap_or(empty_json);
+
+
+        assert_eq!(result, &expected, "Expected: {}, got: {}",  expected, result);
+    }
+
+    #[test]
+    fn iter_slicing_test() {
+        let cmd = "[10..30]";
+        let input_size = 30;
+
+        let json_iter = (0..input_size).map(|i| sample_json(i));
+
+        let mut buffer: Vec<Value> = Vec::new();
+        let value_collector = |jv: &Value| {
+            buffer.push(jv.to_owned());
+        };
+        let parse_res = parse_cmd(&cmd.to_string());
+        let cmd = parse_res.expect("parse_cmd should not fail");
+        streaming_eval(json_iter, cmd, value_collector)
+            .expect("streaming_eval shouldn't throw errors");
+
+        let result = buffer;
+
+        let expected: Vec<Value> = (10..30).map(|i| sample_json(i)).collect();
+
+        assert_eq!(result, expected, "Expected: {:?}, got: {:?}", expected, result);
     }
 }
