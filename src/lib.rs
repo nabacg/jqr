@@ -238,11 +238,11 @@ fn streaming_eval(
     mut write_json: impl FnMut(&Value),
 ) -> Result<(), Box<dyn Error>> {
     match &query {
-        QueryCmd::ArrayIndexAccess(idx) => { 
+        QueryCmd::ArrayIndexAccess(idx) => {
             let idx: HashSet<&usize> = idx.into_iter().collect();
             json_iter
             .enumerate()
-            .map(|(i, jv)| idx.get(&i).map(|_| jv) )          
+            .map(|(i, jv)| idx.get(&i).map(|_| jv) )
             .filter(|j| j.is_some())
             .map(|j| write_json(&j.unwrap()))
             .collect()
@@ -257,10 +257,10 @@ fn streaming_eval(
                 match &cmds[0] {
                     QueryCmd::ArrayIndexAccess(idx) => {
                         // println!("json_iter.coount: {}", json_iter.collect::<Vec<Value>>().len());
-                        let idx: HashSet<&usize> = idx.into_iter().collect();                
+                        let idx: HashSet<&usize> = idx.into_iter().collect();
                         json_iter
                         .enumerate()
-                        .map(|(i, jv)| idx.get(&i).map(|_| jv) )   
+                        .map(|(i, jv)| idx.get(&i).map(|_| jv) )
                         .filter(|j| j.is_some())
                         .map(|j| j.unwrap())
                         .map(|json| apply_consecutive_filters(json, cmds[1..].to_vec()))
@@ -299,7 +299,9 @@ fn streaming_eval(
                         .collect(),
 
                     _ => {
+
                         let mut sliced_json = json_iter.collect::<Vec<Value>>();
+                        // loop over cmds in multi_cmd and apply each
                         for cmd in cmds {
                             sliced_json = sliced_json
                                 .iter()
@@ -308,6 +310,10 @@ fn streaming_eval(
                                 .map(|jv| jv.unwrap())
                                 .collect::<Vec<Value>>();
                         }
+                        // finally print what was collected
+                        sliced_json
+                        .iter()
+                        .for_each(|jv| write_json(&jv));
                     }
                 }
             }
@@ -480,7 +486,7 @@ mod eval_test {
         let cmd = "[100..300] | name ";
         let input_size = 300;
         let expected = 200;
-      
+
         let json_iter = (0..input_size).map(|i| sample_json(i));
 
 
@@ -506,7 +512,7 @@ mod eval_test {
         let cmd = "[100..300] | name | .count";
         let input_size = 300;
         let expected = json!("200");
-      
+
         let json_iter = (0..input_size).map(|i| sample_json(i));
 
 
