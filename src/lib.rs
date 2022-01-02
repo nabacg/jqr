@@ -195,7 +195,7 @@ fn apply_filter(candidate:Value, filter_cmd: &QueryCmd) -> Option<Value> {
 
 }
 
-fn can_apply_consecutive(cmd: &QueryCmd) -> bool {
+fn can_apply_streaming(cmd: &QueryCmd) -> bool {
     match cmd {
         QueryCmd::FilterCmd(_, _, _) => true,
         QueryCmd::KeywordAccess(_) => true,
@@ -221,13 +221,21 @@ fn apply_consecutive_filters(
     let mut v = Some(candidate);
     let rest: Vec<QueryCmd> = cmds
         .iter()
-        .skip_while(|c| can_apply_consecutive(c))
+        .skip_while(|c| can_apply_streaming(c))
         .map(|c| c.to_owned())
         .collect();
-    for cmd in cmds.iter().take_while(|c| can_apply_consecutive(c)) {
+    for cmd in cmds.iter().take_while(|c| can_apply_streaming(c)) {
         v = v.and_then(|j| apply_cmd(j, cmd));
     }
     (v, rest)
+}
+
+fn post_streaming_aggregation(json_rows: Vec<Value>,  agg_cmd: &Option<QueryCmd>, mut write_json: impl FnMut(&Value)) -> () {
+        if let Some(agg_cmd) = agg_cmd {
+            if let Some(jv) =  eval(Value::Array(json_rows), &agg_cmd) {
+                write_json(&jv);
+            }
+        }
 }
 
 //out: &mut dyn io::Write,
@@ -256,6 +264,8 @@ fn streaming_eval(
             if let QueryCmd::MultiCmd(cmds) = q {
                 match &cmds[0] {
                     QueryCmd::ArrayIndexAccess(idx) => {
+                        let mut leftover_jv_buffer:Vec<Value>  = vec![];
+                        let mut agg_cmd: Option<QueryCmd> = None; //Need to init to sth
                         // println!("json_iter.coount: {}", json_iter.collect::<Vec<Value>>().len());
                         let idx: HashSet<&usize> = idx.into_iter().collect();
                         json_iter
@@ -265,38 +275,47 @@ fn streaming_eval(
                         .map(|j| j.unwrap())
                         .map(|json| apply_consecutive_filters(json, cmds[1..].to_vec()))
                         .filter(|(jv, _)| jv.is_some())
-                        .map(|(jv, cmds)| {
+                        .for_each(|(jv, cmds)| {
                             if let Some(jv) = jv {
                                 // println!("jv={:?}, cmds={:?}", jv, cmds);
                                 if cmds.len() > 0 {
-                                    if let Some(jv) =
-                                        eval(jv, &QueryCmd::MultiCmd(cmds))
-                                    {
-                                        // [1..] type indexing impl on QueryCmd::MultiCmd ???
-                                        write_json(&jv)
+                                    if agg_cmd.is_none() {
+                                        agg_cmd = Some(QueryCmd::MultiCmd(cmds));
                                     }
+                                    leftover_jv_buffer.push(jv);
                                 } else {
                                     write_json(&jv)
                                 }
                             }
-                        })
-                        .collect()
+                        });
+                        // .collect();
+                        if leftover_jv_buffer.len() > 0 {
+                            post_streaming_aggregation(leftover_jv_buffer, &agg_cmd, write_json)
+                        }
                     }
-                    QueryCmd::FilterCmd(_, _, _) => json_iter
+                    QueryCmd::FilterCmd(_, _, _) => {
+                        let mut leftover_jv_buffer:Vec<Value>  = vec![];
+                        let mut agg_cmd: Option<QueryCmd> = None;
+
+                        json_iter
                         .map(|json| apply_consecutive_filters(json, cmds.to_vec()))
                         .filter(|(jv, _)| jv.is_some())
-                        .map(|(jv, cmds)| {
+                        .for_each(|(jv, cmds)| {
                             if let Some(jv) = jv {
                                 if cmds.len() > 0 {
-                                    if let Some(jv) = eval(jv, q) {
-                                        write_json(&jv)
+                                    if agg_cmd.is_none() {
+                                        agg_cmd = Some(QueryCmd::MultiCmd(cmds));
                                     }
+                                    leftover_jv_buffer.push(jv);
                                 } else {
                                     write_json(&jv)
                                 }
                             }
-                        })
-                        .collect(),
+                        });
+                        if leftover_jv_buffer.len() > 0 {
+                            post_streaming_aggregation(leftover_jv_buffer, &agg_cmd, write_json)
+                        }
+                    }
 
                     _ => {
 
@@ -511,7 +530,35 @@ mod eval_test {
         // TODO handle this, a streaming index slicing and then .count! This currently doesn't work
         let cmd = "[100..300] | name | .count";
         let input_size = 300;
-        let expected = json!("200");
+        let expected = json!(200);
+
+        let json_iter = (0..input_size).map(|i| sample_json(i));
+
+
+        let mut buffer: Vec<Value> = Vec::new();
+        let value_collector = |jv: &Value| {
+            buffer.push(jv.to_owned());
+        };
+        let parse_res = parse_cmd(&cmd.to_string());
+        let cmd = parse_res.expect("parse_cmd should not fail");
+        streaming_eval(json_iter, cmd, value_collector)
+            .expect("streaming_eval shouldn't throw errors");
+
+        let empty_json = &json!("");
+        let result = buffer.get(0).unwrap_or(empty_json);
+
+
+        assert_eq!(result, &expected, "Expected: {}, got: {}",  expected, result);
+    }
+
+
+    #[test]
+    fn multi_cmd_streaming_starting_with_filter_with_count_after_test() {
+
+        // TODO handle this, a streaming index slicing and then .count! This currently doesn't work
+        let cmd = "i < 100 | name | .count";
+        let input_size = 300;
+        let expected = json!(100);
 
         let json_iter = (0..input_size).map(|i| sample_json(i));
 
