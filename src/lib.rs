@@ -9,10 +9,10 @@ use serde_json::map::Map;
 use serde_json::Deserializer;
 use serde_json::Value;
 use serde_json::Value::Number;
+use std::collections::HashSet;
 use std::error::Error;
 use std::fs::File;
 use std::io::{self, BufReader};
-use std::collections::HashSet;
 mod parser;
 
 #[derive(Debug)]
@@ -177,22 +177,37 @@ fn eval(json: Value, query: &QueryCmd) -> Option<Value> {
     }
 }
 
-fn apply_filter(candidate:Value, filter_cmd: &QueryCmd) -> Option<Value> {
+fn apply_filter(candidate: Value, filter_cmd: &QueryCmd) -> Option<Value> {
     if let QueryCmd::FilterCmd(cmd, op, value) = filter_cmd {
         match eval(candidate.clone(), cmd) {
-            Some(Number(n)) if op == "=" &&  n == value.parse().unwrap() => Some(json!(candidate)),
+            Some(Number(n)) if op == "=" && n == value.parse().unwrap() => Some(json!(candidate)),
             // TODO seems like a classic case of multiple dispatch, extract into separate function, maybe in a trait?
-            Some(Number(n)) if op == ">" &&  n.is_i64() && n.as_i64().unwrap() > value.parse().unwrap() => Some(json!(candidate)),
-            Some(Number(n)) if op == ">" &&  n.is_f64() && n.as_f64().unwrap() > value.parse().unwrap() => Some(json!(candidate)),
-            Some(Number(n)) if op == "<" &&  n.is_i64() && n.as_i64().unwrap() < value.parse().unwrap() => Some(json!(candidate)),
-            Some(Number(n)) if op == "<" &&  n.is_f64() && n.as_f64().unwrap() < value.parse().unwrap() => Some(json!(candidate)),
+            Some(Number(n))
+                if op == ">" && n.is_i64() && n.as_i64().unwrap() > value.parse().unwrap() =>
+            {
+                Some(json!(candidate))
+            }
+            Some(Number(n))
+                if op == ">" && n.is_f64() && n.as_f64().unwrap() > value.parse().unwrap() =>
+            {
+                Some(json!(candidate))
+            }
+            Some(Number(n))
+                if op == "<" && n.is_i64() && n.as_i64().unwrap() < value.parse().unwrap() =>
+            {
+                Some(json!(candidate))
+            }
+            Some(Number(n))
+                if op == "<" && n.is_f64() && n.as_f64().unwrap() < value.parse().unwrap() =>
+            {
+                Some(json!(candidate))
+            }
             Some(serde_json::Value::String(s)) if s == *value => Some(json!(candidate)),
-            _ => None
+            _ => None,
         }
     } else {
         None
     }
-
 }
 
 fn can_apply_streaming(cmd: &QueryCmd) -> bool {
@@ -230,12 +245,16 @@ fn apply_consecutive_filters(
     (v, rest)
 }
 
-fn post_streaming_aggregation(json_rows: Vec<Value>,  agg_cmd: &Option<QueryCmd>, mut write_json: impl FnMut(&Value)) -> () {
-        if let Some(agg_cmd) = agg_cmd {
-            if let Some(jv) =  eval(Value::Array(json_rows), &agg_cmd) {
-                write_json(&jv);
-            }
+fn post_streaming_aggregation(
+    json_rows: Vec<Value>,
+    agg_cmd: &Option<QueryCmd>,
+    mut write_json: impl FnMut(&Value),
+) -> () {
+    if let Some(agg_cmd) = agg_cmd {
+        if let Some(jv) = eval(Value::Array(json_rows), &agg_cmd) {
+            write_json(&jv);
         }
+    }
 }
 
 //out: &mut dyn io::Write,
@@ -249,11 +268,11 @@ fn streaming_eval(
         QueryCmd::ArrayIndexAccess(idx) => {
             let idx: HashSet<&usize> = idx.into_iter().collect();
             json_iter
-            .enumerate()
-            .map(|(i, jv)| idx.get(&i).map(|_| jv) )
-            .filter(|j| j.is_some())
-            .map(|j| write_json(&j.unwrap()))
-            .collect()
+                .enumerate()
+                .map(|(i, jv)| idx.get(&i).map(|_| jv))
+                .filter(|j| j.is_some())
+                .map(|j| write_json(&j.unwrap()))
+                .collect()
         }
         f @ QueryCmd::FilterCmd(_, _, _) => json_iter
             .map(|json| apply_filter(json, f))
@@ -264,61 +283,60 @@ fn streaming_eval(
             if let QueryCmd::MultiCmd(cmds) = q {
                 match &cmds[0] {
                     QueryCmd::ArrayIndexAccess(idx) => {
-                        let mut leftover_jv_buffer:Vec<Value>  = vec![];
+                        let mut leftover_jv_buffer: Vec<Value> = vec![];
                         let mut agg_cmd: Option<QueryCmd> = None; //Need to init to sth
-                        // println!("json_iter.coount: {}", json_iter.collect::<Vec<Value>>().len());
+                                                                  // println!("json_iter.coount: {}", json_iter.collect::<Vec<Value>>().len());
                         let idx: HashSet<&usize> = idx.into_iter().collect();
                         json_iter
-                        .enumerate()
-                        .map(|(i, jv)| idx.get(&i).map(|_| jv) )
-                        .filter(|j| j.is_some())
-                        .map(|j| j.unwrap())
-                        .map(|json| apply_consecutive_filters(json, cmds[1..].to_vec()))
-                        .filter(|(jv, _)| jv.is_some())
-                        .for_each(|(jv, cmds)| {
-                            if let Some(jv) = jv {
-                                // println!("jv={:?}, cmds={:?}", jv, cmds);
-                                if cmds.len() > 0 {
-                                    if agg_cmd.is_none() {
-                                        agg_cmd = Some(QueryCmd::MultiCmd(cmds));
+                            .enumerate()
+                            .map(|(i, jv)| idx.get(&i).map(|_| jv))
+                            .filter(|j| j.is_some())
+                            .map(|j| j.unwrap())
+                            .map(|json| apply_consecutive_filters(json, cmds[1..].to_vec()))
+                            .filter(|(jv, _)| jv.is_some())
+                            .for_each(|(jv, cmds)| {
+                                if let Some(jv) = jv {
+                                    // println!("jv={:?}, cmds={:?}", jv, cmds);
+                                    if cmds.len() > 0 {
+                                        if agg_cmd.is_none() {
+                                            agg_cmd = Some(QueryCmd::MultiCmd(cmds));
+                                        }
+                                        leftover_jv_buffer.push(jv);
+                                    } else {
+                                        write_json(&jv)
                                     }
-                                    leftover_jv_buffer.push(jv);
-                                } else {
-                                    write_json(&jv)
                                 }
-                            }
-                        });
+                            });
                         // .collect();
                         if leftover_jv_buffer.len() > 0 {
                             post_streaming_aggregation(leftover_jv_buffer, &agg_cmd, write_json)
                         }
                     }
                     QueryCmd::FilterCmd(_, _, _) => {
-                        let mut leftover_jv_buffer:Vec<Value>  = vec![];
+                        let mut leftover_jv_buffer: Vec<Value> = vec![];
                         let mut agg_cmd: Option<QueryCmd> = None;
 
                         json_iter
-                        .map(|json| apply_consecutive_filters(json, cmds.to_vec()))
-                        .filter(|(jv, _)| jv.is_some())
-                        .for_each(|(jv, cmds)| {
-                            if let Some(jv) = jv {
-                                if cmds.len() > 0 {
-                                    if agg_cmd.is_none() {
-                                        agg_cmd = Some(QueryCmd::MultiCmd(cmds));
+                            .map(|json| apply_consecutive_filters(json, cmds.to_vec()))
+                            .filter(|(jv, _)| jv.is_some())
+                            .for_each(|(jv, cmds)| {
+                                if let Some(jv) = jv {
+                                    if cmds.len() > 0 {
+                                        if agg_cmd.is_none() {
+                                            agg_cmd = Some(QueryCmd::MultiCmd(cmds));
+                                        }
+                                        leftover_jv_buffer.push(jv);
+                                    } else {
+                                        write_json(&jv)
                                     }
-                                    leftover_jv_buffer.push(jv);
-                                } else {
-                                    write_json(&jv)
                                 }
-                            }
-                        });
+                            });
                         if leftover_jv_buffer.len() > 0 {
                             post_streaming_aggregation(leftover_jv_buffer, &agg_cmd, write_json)
                         }
                     }
 
                     _ => {
-
                         let mut sliced_json = json_iter.collect::<Vec<Value>>();
                         // loop over cmds in multi_cmd and apply each
                         for cmd in cmds {
@@ -330,9 +348,7 @@ fn streaming_eval(
                                 .collect::<Vec<Value>>();
                         }
                         // finally print what was collected
-                        sliced_json
-                        .iter()
-                        .for_each(|jv| write_json(&jv));
+                        sliced_json.iter().for_each(|jv| write_json(&jv));
                     }
                 }
             }
@@ -495,19 +511,15 @@ mod eval_test {
         }
     }
 
-
-
     #[test]
     fn multi_cmd_index_slicing_test() {
-
         //TODO write a test to handle this, a streaming index slicing and then .count!
-       // let cmd = "[100..300] | name | .count";
+        // let cmd = "[100..300] | name | .count";
         let cmd = "[100..300] | name ";
         let input_size = 300;
         let expected = 200;
 
         let json_iter = (0..input_size).map(|i| sample_json(i));
-
 
         let mut buffer: Vec<Value> = Vec::new();
         let value_collector = |jv: &Value| {
@@ -520,13 +532,11 @@ mod eval_test {
 
         let result = buffer.len();
 
-
-        assert_eq!(result, expected, "Expected: {}, got: {}",  expected, result);
+        assert_eq!(result, expected, "Expected: {}, got: {}", expected, result);
     }
 
     #[test]
     fn multi_cmd_streaming_with_count_after_test() {
-
         // TODO handle this, a streaming index slicing and then .count! This currently doesn't work
         let cmd = "[100..300] | name | .count";
         let input_size = 300;
@@ -534,7 +544,6 @@ mod eval_test {
 
         let json_iter = (0..input_size).map(|i| sample_json(i));
 
-
         let mut buffer: Vec<Value> = Vec::new();
         let value_collector = |jv: &Value| {
             buffer.push(jv.to_owned());
@@ -547,14 +556,11 @@ mod eval_test {
         let empty_json = &json!("");
         let result = buffer.get(0).unwrap_or(empty_json);
 
-
-        assert_eq!(result, &expected, "Expected: {}, got: {}",  expected, result);
+        assert_eq!(result, &expected, "Expected: {}, got: {}", expected, result);
     }
-
 
     #[test]
     fn multi_cmd_streaming_starting_with_filter_with_count_after_test() {
-
         // TODO handle this, a streaming index slicing and then .count! This currently doesn't work
         let cmd = "i < 100 | name | .count";
         let input_size = 300;
@@ -562,7 +568,6 @@ mod eval_test {
 
         let json_iter = (0..input_size).map(|i| sample_json(i));
 
-
         let mut buffer: Vec<Value> = Vec::new();
         let value_collector = |jv: &Value| {
             buffer.push(jv.to_owned());
@@ -575,8 +580,7 @@ mod eval_test {
         let empty_json = &json!("");
         let result = buffer.get(0).unwrap_or(empty_json);
 
-
-        assert_eq!(result, &expected, "Expected: {}, got: {}",  expected, result);
+        assert_eq!(result, &expected, "Expected: {}, got: {}", expected, result);
     }
 
     #[test]
@@ -599,6 +603,10 @@ mod eval_test {
 
         let expected: Vec<Value> = (10..30).map(|i| sample_json(i)).collect();
 
-        assert_eq!(result, expected, "Expected: {:?}, got: {:?}", expected, result);
+        assert_eq!(
+            result, expected,
+            "Expected: {:?}, got: {:?}",
+            expected, result
+        );
     }
 }

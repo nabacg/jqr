@@ -1,8 +1,6 @@
+use jqr::CmdArgs;
 use std::env;
 use std::process;
-use jqr::CmdArgs;
-
-
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -11,10 +9,8 @@ fn main() {
         process::exit(1);
     });
 
-
     if let Err(e) = jqr::eval_cmd(cmd) {
         eprintln!("Application error: {}", e);
         process::exit(1);
     }
-
 }
